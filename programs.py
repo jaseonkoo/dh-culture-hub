@@ -145,23 +145,48 @@ def run_mentoring():
                     for single_info in sorted(infos): st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{single_info}")
 
         st.markdown("---")
-        c1, c2 = st.columns(2)
-        m_n, m_p = c1.text_input("신청자 성함", key="m_n_t1"), c1.text_input("직급", key="m_p_t1")
-        m_t, m_e = c2.text_input("팀명", key="m_t_t1"), c2.text_input("사내 이메일", key="m_e_t1", placeholder="example@daehanfeed.co.kr")
-        if m_e and not is_company_email(m_e): st.error("🚫 @daehanfeed.co.kr 전용")
-
-        col_sel, col_prof = st.columns([1.2, 1])
-        with col_sel:
+        
+        # ✨ 디자인 수정: 좌측/우측을 정확히 5:5 비율로 나누어 가로 길이를 완벽히 맞춥니다.
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            m_n = st.text_input("신청자 성함", key="m_n_t1")
+            m_p = st.text_input("직급", key="m_p_t1")
             selected_m = st.selectbox("멘토 선택", mentor_names, key="m_s_t1")
             sel_date = st.date_input("날짜 선택", datetime.date.today() + datetime.timedelta(days=1), key="d_s_t1")
+            
+        with col_right:
+            m_t = st.text_input("팀명", key="m_t_t1")
+            m_e = st.text_input("사내 이메일", key="m_e_t1", placeholder="example@daehanfeed.co.kr")
+            if m_e and not is_company_email(m_e): st.error("🚫 @daehanfeed.co.kr 전용")
+            
+            # 멘토를 선택하면 우측 빈 공간에 프로필 카드가 나타납니다.
+            if selected_m != "선택해주세요":
+                p = next((m for m in st.session_state.get('mentors_data', []) if m['name'] == selected_m), None)
+                if p: 
+                    st.markdown(f"""
+                    <div style="border: 2px solid #4A90E2; padding: 18px; border-radius: 12px; background-color: #f0f7ff; margin-top: 10px;">
+                        <h4 style="margin-top:0; color: #1E3A8A;">🎖️ {p['name']} {p.get('position','')} 멘토</h4>
+                        <p style="margin-bottom: 8px; font-size: 0.95em;">🏢 소속: {p.get('team','')}<br>🎯 전문분야: {p.get('expertise','')}</p>
+                        <div style="background-color: white; padding: 10px; border-radius: 8px; border-left: 4px solid #4A90E2;">
+                            <p style="font-size: 0.9em; margin: 0; color: #555;"><i>"{p.get('greeting','')}"</i></p>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+        # 멘토가 선택되었을 때만 하단에 시간 및 주제 입력란이 전체 너비로 깔끔하게 열립니다.
+        if selected_m != "선택해주세요":
             slots = [s for s in st.session_state.get('available_slots', []) if s['mentor']==selected_m and s['date']==sel_date]
             if slots:
+                st.markdown("---")
                 w_day_sel = WEEKS[sel_date.weekday()]
                 st.info(f"📍 {slots[0].get('location','-')} | ⏰ {sel_date.strftime('%m/%d')}({w_day_sel}) {slots[0]['start']} ~ {slots[0]['end']}")
                 p_t = generate_time_slots(slots[0]['start'], slots[0]['end'])
+                
                 ct1, ct2 = st.columns(2)
                 ts = ct1.selectbox("시작 시간", p_t, format_func=lambda x: x.strftime("%H:%M"), key="ts_t1")
                 te = ct2.selectbox("종료 시간", [t for t in p_t if t > ts] if [t for t in p_t if t > ts] else [ts], format_func=lambda x: x.strftime("%H:%M"), key="te_t1")
+                
                 topic = st.text_area("상담 주제 (필수)", key="tp_t1")
                 
                 if st.button("🚀 예약 신청하기", type="primary", use_container_width=True, key="bt1"):
@@ -181,11 +206,6 @@ def run_mentoring():
                                 mail_body = f"안녕하세요, {selected_m} 멘토님!\n\n{m_n}님께서 멘토링을 신청하셨습니다.\n\n- 일시: {sel_date} ({ts.strftime('%H:%M')} ~ {te.strftime('%H:%M')})\n- 주제: {topic}\n\n▶ 시스템 접속: {SYSTEM_URL}"
                                 send_email(m_info['email'], mail_subject, mail_body)
                         st.balloons(); time.sleep(1); st.rerun()
-
-        with col_prof:
-            if selected_m != "선택해주세요":
-                p = next((m for m in st.session_state.get('mentors_data', []) if m['name'] == selected_m), None)
-                if p: st.markdown(f"""<div style="border: 2px solid #4A90E2; padding: 25px; border-radius: 12px; background-color: #f0f7ff;"><h3 style="margin-top:0; color: #1E3A8A;">🎖️ {p['name']} {p.get('position','')} 멘토</h3><p>🏢 소속: {p.get('team','')}<br>🎯 전문분야: {p.get('expertise','')}</p><div style="margin-top: 15px; background-color: white; padding: 15px; border-radius: 8px; border-left: 5px solid #4A90E2;"><p style="font-size: 0.9em;"><i>"{p.get('greeting','')}"</i></p></div></div>""", unsafe_allow_html=True)
 
     # --- [💼 Tab 2: 멘토 일정 관리] ---
     with tab2:
