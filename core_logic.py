@@ -9,7 +9,7 @@ from email.header import Header
 from oauth2client.service_account import ServiceAccountCredentials
 
 # [차장님 절대 규칙 1] 시스템 기본 설정
-SYSTEM_URL = "https://dh-culture-hub.streamlit.app"
+SYSTEM_URL = "https://dhfeed-culture.streamlit.app" # 실제 배포 주소로 변경
 ALLOWED_DOMAIN = "@daehanfeed.co.kr"
 WEEKS = ['월', '화', '수', '목', '금', '토', '일']
 
