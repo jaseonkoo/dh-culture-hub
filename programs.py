@@ -605,7 +605,7 @@ def run_leader_talk():
             
             with st.expander("📋 기존 리더 수정/삭제", expanded=True):
                 for i, m in enumerate(st.session_state.get('leaders_data', [])):
-                    st.markdown(f"**[{m['name']}] 관리**")
+                    st.markdown(f"**[{m['name']}] 리더님**")
                     er1, er2, er3, er4 = st.columns(4)
                     un = er1.text_input("성함", m['name'], key=f"l_un_{i}")
                     up = er2.text_input("직급", m.get('position',''), key=f"l_up_{i}")
