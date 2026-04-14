@@ -625,6 +625,179 @@ def run_leader_talk():
                         st.session_state.leaders_data.pop(i); safe_save_leader("leaders", st.session_state.leaders_data); st.rerun()
                     st.divider()
 
+# ==========================================
+# 🎓 [직무 원데이 클래스] - 개설, 신청, 명단 확인 통합
+# ==========================================
 def run_class():
+    st.markdown("""
+        <style>
+        .stTextInput, .stSelectbox, .stDateInput, .stTextArea, .stTimeInput { margin-bottom: 12px !important; }
+        .class-card { border: 2px solid #F39C12; padding: 20px; border-radius: 12px; background-color: #FFF9F0; margin-bottom: 15px; }
+        </style>
+    """, unsafe_allow_html=True)
+
     st.header("🎓 직무 원데이 클래스")
-    st.info("준비 중입니다.")
+    st.caption("사내 전문가에게 직접 배우는 실무 노하우, 함께 성장하는 직무 교육 플랫폼")
+    st.markdown("---")
+
+    if "c_admin_logged_in" not in st.session_state:
+        st.session_state.c_admin_logged_in = False
+
+    # DB 연동 (클래스 전용 DB)
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
+             "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
+    
+    @st.cache_resource
+    def init_gspread_class():
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+        client = gspread.authorize(creds)
+        return client.open("대한사료_원데이클래스_DB")
+
+    def get_sheet_data_class(sheet_name):
+        try: doc = init_gspread_class(); return doc.worksheet(sheet_name).get_all_records()
+        except: return []
+
+    def fetch_latest_data_class(force=False):
+        if force: st.cache_data.clear()
+        try:
+            st.session_state.classes_data = get_sheet_data_class("classes")
+            st.session_state.c_reservations = get_sheet_data_class("applications")
+            ad_list = get_sheet_data_class("admin")
+            st.session_state.c_admin_info = ad_list[0] if ad_list else {"id": "admin", "pw": "dhfeed1947"}
+        except: pass
+
+    fetch_latest_data_class()
+
+    def safe_save_class(ws_name, data_list):
+        try:
+            doc = init_gspread_class(); ws = doc.worksheet(ws_name); ws.clear()
+            if data_list:
+                df = pd.DataFrame(data_list)
+                df = df.fillna("")
+                ws.update([df.columns.values.tolist()] + df.values.tolist())
+            fetch_latest_data_class(force=True)
+        except: st.error("⚠️ 데이터 저장 오류")
+
+    # 📊 탭 구성
+    tab1, tab2, tab3 = st.tabs(["📖 클래스 수강 신청", "✍️ 클래스 개설/관리", "👑 관리자 메뉴"])
+
+    # --- [📖 Tab 1: 수강 신청 (임직원용)] ---
+    with tab1:
+        st.subheader("📚 오픈된 클래스 목록")
+        active_classes = [c for c in st.session_state.classes_data if c.get('status') == '모집중']
+        
+        if not active_classes:
+            st.info("현재 모집 중인 클래스가 없습니다.")
+        else:
+            for c in active_classes:
+                with st.container():
+                    # 현재 신청 인원 계산
+                    current_apps = [a for a in st.session_state.c_reservations if a['class_id'] == c['id']]
+                    count = len(current_apps)
+                    capa = int(c['capacity'])
+                    
+                    st.markdown(f"""
+                    <div class="class-card">
+                        <h3 style="color: #E67E22; margin-top:0;">{c['title']}</h3>
+                        <p>👤 <b>강사:</b> {c['instructor']} | 📅 <b>일시:</b> {c['date']} {c['time']}<br>
+                        📍 <b>장소:</b> {c['location']} | 👥 <b>정원:</b> {count}/{capa}명</p>
+                        <p style="font-size: 0.9em; color: #666;">{c['description']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if count >= capa:
+                        st.warning("⚠️ 정원이 초과되었습니다. (마감)")
+                    else:
+                        with st.expander(f"🙋‍♂️ '{c['title']}' 수강 신청하기"):
+                            with st.form(key=f"form_{c['id']}"):
+                                c1, c2 = st.columns(2)
+                                u_n = c1.text_input("성함")
+                                u_p = c1.text_input("직급")
+                                u_t = c2.text_input("팀명")
+                                u_e = c2.text_input("사내 이메일")
+                                
+                                if st.form_submit_button("신청서 제출"):
+                                    if u_n and is_company_email(u_e):
+                                        new_app = {
+                                            "id": str(uuid.uuid4())[:8],
+                                            "class_id": c['id'],
+                                            "class_title": c['title'],
+                                            "user_name": u_n,
+                                            "user_pos": u_p,
+                                            "user_team": u_t,
+                                            "user_email": u_e,
+                                            "status": "신청완료"
+                                        }
+                                        st.session_state.c_reservations.append(new_app)
+                                        safe_save_class("applications", st.session_state.c_reservations)
+                                        st.balloons(); st.success("신청이 완료되었습니다!"); time.sleep(1); st.rerun()
+                                    else:
+                                        st.error("성함과 이메일 형식을 확인해 주세요.")
+
+    # --- [✍️ Tab 2: 클래스 개설 및 명단 확인 (강사/인사팀용)] ---
+    with tab2:
+        st.subheader("🛠️ 클래스 개설 및 명단 관리")
+        mode = st.radio("작업 선택", ["신규 클래스 개설", "신청자 명단 확인"], horizontal=True)
+        
+        if mode == "신규 클래스 개설":
+            with st.form("new_class_form"):
+                title = st.text_input("강의명 (예: 실무 엑셀 마스터)")
+                instr = st.text_input("강사 (본인 성함)")
+                c1, c2 = st.columns(2)
+                d_val = c1.date_input("강의 날짜")
+                t_val = c1.text_input("강의 시간 (예: 14:00~16:00)")
+                loc = c2.text_input("장소 (예: 본사 3층 회의실)")
+                capa = c2.number_input("모집 정원", min_value=1, value=10)
+                desc = st.text_area("클래스 설명 및 준비물")
+                
+                if st.form_submit_button("클래스 오픈하기"):
+                    new_class = {
+                        "id": str(uuid.uuid4())[:8],
+                        "title": title,
+                        "instructor": instr,
+                        "date": str(d_val),
+                        "time": t_val,
+                        "location": loc,
+                        "capacity": capa,
+                        "description": desc,
+                        "status": "모집중"
+                    }
+                    st.session_state.classes_data.append(new_class)
+                    safe_save_class("classes", st.session_state.classes_data)
+                    st.success(f"'{title}' 클래스가 개설되었습니다!"); st.rerun()
+        
+        else:
+            class_titles = [c['title'] for c in st.session_state.classes_data]
+            sel_class = st.selectbox("명단을 확인할 클래스 선택", ["선택하세요"] + class_titles)
+            
+            if sel_class != "선택하세요":
+                target_class = next(c for c in st.session_state.classes_data if c['title'] == sel_class)
+                applicants = [a for a in st.session_state.c_reservations if a['class_id'] == target_class['id']]
+                
+                st.write(f"### 📋 '{sel_class}' 신청자 리스트 (총 {len(applicants)}명)")
+                if applicants:
+                    df_app = pd.DataFrame(applicants)[['user_name', 'user_pos', 'user_team', 'user_email', 'status']]
+                    st.dataframe(df_app, use_container_width=True)
+                else:
+                    st.info("아직 신청자가 없습니다.")
+
+    # --- [👑 Tab 3: 관리자 메뉴] ---
+    with tab3:
+        st.subheader("👑 클래스 전체 제어")
+        if not st.session_state.c_admin_logged_in:
+            aid, apw = st.text_input("관리자 ID"), st.text_input("비밀번호", type="password")
+            if st.button("관리자 로그인"):
+                if aid == st.session_state.c_admin_info['id'] and apw == str(st.session_state.c_admin_info['pw']):
+                    st.session_state.c_admin_logged_in = True; st.rerun()
+        else:
+            if st.button("로그아웃"): st.session_state.c_admin_logged_in = False; st.rerun()
+            st.write("모든 클래스의 상태를 관리하거나 삭제할 수 있습니다.")
+            for i, c in enumerate(st.session_state.classes_data):
+                col1, col2, col3 = st.columns([3, 1, 1])
+                col1.write(f"**{c['title']}** ({c['date']})")
+                if col2.button("마감/오픈 전환", key=f"tog_{i}"):
+                    c['status'] = '마감' if c['status'] == '모집중' else '모집중'
+                    safe_save_class("classes", st.session_state.classes_data); st.rerun()
+                if col3.button("삭제", key=f"del_{i}"):
+                    st.session_state.classes_data.pop(i)
+                    safe_save_class("classes", st.session_state.classes_data); st.rerun()
