@@ -734,7 +734,7 @@ def run_class():
                                     else:
                                         st.error("성함과 이메일 형식을 확인해 주세요.")
 
-    # --- [✍️ Tab 2: 클래스 개설 및 명단 확인 (강사/인사팀용)] ---
+# --- [✍️ Tab 2: 클래스 개설 및 명단 확인 (강사/인사팀용)] ---
     with tab2:
         st.subheader("🛠️ 클래스 개설 및 명단 관리")
         mode = st.radio("작업 선택", ["신규 클래스 개설", "신청자 명단 확인"], horizontal=True)
@@ -751,20 +751,30 @@ def run_class():
                 desc = st.text_area("클래스 설명 및 준비물")
                 
                 if st.form_submit_button("클래스 오픈하기"):
-                    new_class = {
-                        "id": str(uuid.uuid4())[:8],
-                        "title": title,
-                        "instructor": instr,
-                        "date": str(d_val),
-                        "time": t_val,
-                        "location": loc,
-                        "capacity": capa,
-                        "description": desc,
-                        "status": "모집중"
-                    }
-                    st.session_state.classes_data.append(new_class)
-                    safe_save_class("classes", st.session_state.classes_data)
-                    st.success(f"'{title}' 클래스가 개설되었습니다!"); st.rerun()
+                    # ✨ 빈칸 확인 장치 추가
+                    if not title or not instr:
+                        st.error("⚠️ 강의명과 강사 성함을 꼭 입력해 주세요!")
+                    else:
+                        with st.status("📡 클래스 개설 중..."):
+                            new_class = {
+                                "id": str(uuid.uuid4())[:8],
+                                "title": title,
+                                "instructor": instr,
+                                "date": str(d_val),
+                                "time": t_val,
+                                "location": loc,
+                                "capacity": capa,
+                                "description": desc,
+                                "status": "모집중"
+                            }
+                            st.session_state.classes_data.append(new_class)
+                            safe_save_class("classes", st.session_state.classes_data)
+                        
+                        # ✨ 확실한 시각적 피드백 (풍선 + 1.5초 대기)
+                        st.balloons()
+                        st.success(f"🎉 성공! '{title}' 클래스가 완벽하게 오픈되었습니다.")
+                        time.sleep(1.5)
+                        st.rerun()
         
         else:
             class_titles = [c['title'] for c in st.session_state.classes_data]
@@ -780,7 +790,6 @@ def run_class():
                     st.dataframe(df_app, use_container_width=True)
                 else:
                     st.info("아직 신청자가 없습니다.")
-
     # --- [👑 Tab 3: 관리자 메뉴] ---
     with tab3:
         st.subheader("👑 클래스 전체 제어")
