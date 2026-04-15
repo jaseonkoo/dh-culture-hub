@@ -51,9 +51,6 @@ def run_mentoring():
     st.markdown("""
         <style>
         .stTextInput, .stSelectbox, .stDateInput, .stTextArea, .stTimeInput { margin-bottom: 12px !important; }
-        @media (max-width: 768px) {
-            div[data-testid="stExpander"] details summary p { display: block !important; visibility: visible !important; line-height: 1.6 !important; font-size: 15px !important; }
-        }
         .status-item { padding: 5px 10px; border-bottom: 1px solid #f0f2f6; line-height: 1.5; }
         </style>
     """, unsafe_allow_html=True)
