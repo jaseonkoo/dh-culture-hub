@@ -329,6 +329,11 @@ def run_mentoring():
     # --- [👑 Tab 4: 관리자 메뉴] ---
     with tab4:
         st.subheader("👑 인사총무팀 전용 관리 시스템")
+        
+        # 👇 이 두 줄을 추가해 주세요! (변수가 없으면 바로 만들어줍니다)
+        if "admin_logged_in" not in st.session_state:
+            st.session_state.admin_logged_in = False
+            
         if not st.session_state.admin_logged_in:
             aid, apw = st.text_input("ID", key="ad_id"), st.text_input("PW", type="password", key="ad_pw")
             if st.button("로그인") and aid == st.session_state.admin_info['id'] and apw == str(st.session_state.admin_info['pw']):
