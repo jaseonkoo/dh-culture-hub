@@ -59,6 +59,9 @@ def run_mentoring():
     st.caption("대한사료 임직원 간의 성장을 돕는 실시간 소통 플랫폼")
     st.markdown("---")
 
+    # ==========================================
+    # ☁️ 구글 스프레드시트 연동 로직 (안정성 최우선 복원)
+    # ==========================================
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
     
@@ -68,12 +71,21 @@ def run_mentoring():
         client = gspread.authorize(creds)
         return client.open("대한사료_멘토링_DB")
 
+    # ✨ 핵심 복원: 구글 API 호출 제한 방지를 위해 60초간 데이터를 메모리에 기억합니다!
+    @st.cache_data(ttl=60, show_spinner=False)
     def get_sheet_data(sheet_name):
-        try: doc = init_gspread(); return doc.worksheet(sheet_name).get_all_records()
-        except: return []
+        try:
+            doc = init_gspread()
+            return doc.worksheet(sheet_name).get_all_records()
+        except Exception as e:
+            # 에러가 나면 숨기지 않고 화면에 표시하여 디버깅을 돕습니다.
+            st.error(f"⚠️ '{sheet_name}' 데이터를 불러오는 중 오류 발생: {e}")
+            return []
 
     def fetch_latest_data(force=False):
-        if force: st.cache_data.clear()
+        if force:
+            st.cache_data.clear() # 강제 새로고침 시 기억(캐시)을 지웁니다.
+            
         try:
             st.session_state.mentors_data = get_sheet_data("mentors")
             ad_list = get_sheet_data("admin")
@@ -98,10 +110,27 @@ def run_mentoring():
                 r['end_time'] = datetime.datetime.strptime(str(r['end_time']), "%H:%M:%S").time()
                 formatted_res.append(r)
             st.session_state.reservations = formatted_res
-        except: pass
+        except Exception as e:
+            pass
 
     fetch_latest_data()
 
+    def safe_save(ws_name, data_list):
+        try:
+            doc = init_gspread()
+            ws = doc.worksheet(ws_name)
+            ws.clear()
+            if data_list:
+                df = pd.DataFrame(data_list)
+                for c in ['date', 'start', 'end', 'start_time', 'end_time']:
+                    if c in df.columns: df[c] = df[c].astype(str)
+                df = df.fillna("")
+                ws.update(values=[df.columns.values.tolist()] + df.values.tolist())
+            fetch_latest_data(force=True) # 저장 후에는 무조건 최신 데이터로 캐시를 갱신!
+            return True
+        except Exception as e: 
+            st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
+            return False
     # ✨ 개선 2: 저장 속도 문제 해결 (저장 직후 예전 데이터를 불러오지 않도록 수정)
     def safe_save(ws_name, data_list):
         try:
