@@ -343,13 +343,10 @@ def run_leader_talk():
     st.markdown("""
         <style>
         .stTextInput, .stSelectbox, .stDateInput, .stTextArea, .stTimeInput { margin-bottom: 12px !important; }
-        @media (max-width: 768px) {
-            div[data-testid="stExpander"] details summary p { display: block !important; visibility: visible !important; line-height: 1.6 !important; font-size: 15px !important; }
-        }
         .status-item { padding: 5px 10px; border-bottom: 1px solid #f0f2f6; line-height: 1.5; }
         </style>
     """, unsafe_allow_html=True)
-
+    
     st.header("☕ 리더와의 대화")
     st.caption("경영진 및 팀장급 리더와 자유롭게 소통하며 비전을 나누는 시간입니다.")
     st.markdown("---")
