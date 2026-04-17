@@ -872,7 +872,7 @@ def run_class():
         else:
             if st.button("로그아웃", key="c_logout_btn"): st.session_state.c_admin_logged_in = False; st.rerun()
             
-            with st.expander("👨‍🏫 강사 권한 관리"):
+            with st.expander("👨‍🏫 강사 신규 등록"):
                 r1, r2, r3, r4 = st.columns(4)
                 nm = r1.text_input("성함",key="c_n1"); np = r2.text_input("직급",key="c_n2")
                 nt = r3.text_input("팀명",key="c_n3"); n_pw = r4.text_input("초기 비번",key="c_n4")
@@ -881,7 +881,35 @@ def run_class():
                     st.session_state.instructors_data.append({"name":nm, "position":np, "team":nt, "pw":n_pw, "email":ne})
                     safe_save_class("instructors", st.session_state.instructors_data); st.success("등록됨"); st.rerun()
 
-            with st.expander("📚 전체 클래스 및 신청 명단", expanded=True):
+            # ✨ 누락되었던 강사 현황 조회 및 수정/삭제 기능 복원!
+            with st.expander("📋 등록된 강사 현황 및 관리", expanded=True):
+                instructors = st.session_state.get('instructors_data', [])
+                if not instructors:
+                    st.info("현재 등록된 사내 강사가 없습니다.")
+                else:
+                    for i, m in enumerate(instructors):
+                        st.markdown(f"#### 👤 {m['name']} 강사님")
+                        er1, er2, er3, er4 = st.columns(4)
+                        un = er1.text_input("성함", m['name'], key=f"c_un_{i}")
+                        up = er2.text_input("직급", m.get('position',''), key=f"c_up_{i}")
+                        ut = er3.text_input("팀명", m.get('team',''), key=f"c_ut_{i}")
+                        upw = er4.text_input("비번", m.get('pw',''), key=f"c_upw_{i}")
+                        
+                        ue = st.text_input("사내 이메일", m.get('email',''), key=f"c_ue_{i}")
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        if col_btn1.button("💾 정보 수정", key=f"c_sv_{i}", use_container_width=True):
+                            if is_company_email(ue):
+                                st.session_state.instructors_data[i].update({"name":un,"position":up,"team":ut,"pw":upw,"email":ue})
+                                safe_save_class("instructors", st.session_state.instructors_data); st.success("수정 완료!"); st.rerun()
+                            else:
+                                st.error("이메일 형식을 확인해주세요.")
+                        if col_btn2.button("❌ 강사 권한 삭제", key=f"c_dl_{i}", use_container_width=True):
+                            st.session_state.instructors_data.pop(i)
+                            safe_save_class("instructors", st.session_state.instructors_data); st.rerun()
+                        st.divider()
+
+            with st.expander("📚 전체 클래스 및 신청 명단", expanded=False):
                 for i, c in enumerate(st.session_state.get('classes_data', [])):
                     current_apps = [a for a in st.session_state.get('c_reservations', []) if a['class_id'] == c['id']]
                     col_info, col_btn1, col_btn2 = st.columns([3, 1, 1])
