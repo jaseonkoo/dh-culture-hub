@@ -658,6 +658,9 @@ def run_leader_talk():
 # ==========================================
 # 🎓 [직무 원데이 클래스] - 수강 취소 기능 추가 버전
 # ==========================================
+# ==========================================
+# 🎓 [직무 원데이 클래스] - 시작/종료 시간 입력 기능 추가
+# ==========================================
 def run_class():
     st.markdown("""
         <style>
@@ -724,7 +727,6 @@ def run_class():
 
     # --- [📖 Tab 1: 수강 신청 및 취소] ---
     with tab1:
-        # 하위 탭으로 신청과 취소 분리
         sub_tab_apply, sub_tab_cancel = st.tabs(["✨ 신규 수강 신청", "🔍 내 신청 확인/취소"])
 
         with sub_tab_apply:
@@ -762,7 +764,6 @@ def run_class():
                                     
                                     if st.form_submit_button("신청서 제출"):
                                         if u_n and is_company_email(u_e):
-                                            # 중복 신청 체크
                                             is_dup = any(a['class_id'] == c['id'] and a['user_email'] == u_e for a in st.session_state.c_reservations)
                                             if is_dup:
                                                 st.error("이미 신청하신 클래스입니다.")
@@ -805,12 +806,10 @@ def run_class():
                             """, unsafe_allow_html=True)
                             
                             if st.button("❌ 신청 취소하기", key=f"cancel_{a['id']}"):
-                                # 해당 항목 삭제
                                 st.session_state.c_reservations.remove(a)
                                 if safe_save_class("applications", st.session_state.c_reservations):
                                     st.success(f"'{a['class_title']}' 신청이 취소되었습니다.")
-                                    time.sleep(1.5)
-                                    st.rerun()
+                                    time.sleep(1.5); st.rerun()
 
     # --- [👨‍🏫 Tab 2: 사내 강사 전용 공간 (자물쇠)] ---
     with tab2:
@@ -826,16 +825,29 @@ def run_class():
                     with st.form("new_class_form"):
                         title = st.text_input("강의명 (예: 실무 엑셀 마스터)")
                         st.info(f"👨‍🏫 강사: **{c_log}**")
+                        
+                        # ✨ 수정된 부분: 강의 날짜와 시작/종료 시간 위젯
                         c1, c2 = st.columns(2)
                         d_val = c1.date_input("강의 날짜")
-                        t_val = c1.text_input("강의 시간")
+                        
+                        t1, t2 = c1.columns(2)
+                        start_time = t1.time_input("시작 시간", datetime.time(14, 0))
+                        end_time = t2.time_input("종료 시간", datetime.time(16, 0))
+                        
                         loc = c2.text_input("장소")
                         capa = c2.number_input("모집 정원", min_value=1, value=15)
                         desc = st.text_area("설명 및 준비물")
                         
                         if st.form_submit_button("클래스 오픈하기"):
-                            if title:
+                            if not title:
+                                st.error("⚠️ 강의명을 입력해 주세요!")
+                            elif start_time >= end_time:
+                                st.error("⚠️ 종료 시간은 시작 시간보다 늦어야 합니다.")
+                            else:
                                 with st.status("📡 개설 중..."):
+                                    # 시작/종료 시간을 보기 좋은 문자열로 합칩니다.
+                                    t_val = f"{start_time.strftime('%H:%M')} ~ {end_time.strftime('%H:%M')}"
+                                    
                                     new_class = {
                                         "id": str(uuid.uuid4())[:8],
                                         "title": title, "instructor": c_log,
@@ -881,7 +893,6 @@ def run_class():
                     st.session_state.instructors_data.append({"name":nm, "position":np, "team":nt, "pw":n_pw, "email":ne})
                     safe_save_class("instructors", st.session_state.instructors_data); st.success("등록됨"); st.rerun()
 
-            # ✨ 누락되었던 강사 현황 조회 및 수정/삭제 기능 복원!
             with st.expander("📋 등록된 강사 현황 및 관리", expanded=True):
                 instructors = st.session_state.get('instructors_data', [])
                 if not instructors:
