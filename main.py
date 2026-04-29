@@ -57,12 +57,12 @@ if st.session_state.page == "home":
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.markdown("### 🤝 사내 멘토링")
+        st.markdown("### 🤝 동반성장 멘토링")
         if st.button("입장하기", key="btn_mentoring", use_container_width=True):
             go_to("mentoring")
 
     with col2:
-        st.markdown("### ☕ 리더와의 대화")
+        st.markdown("### ☕ 리더와의 대화 - 성장지원 1:1 코칭")
         if st.button("입장하기", key="btn_leader", use_container_width=True):
             go_to("leader")
 
