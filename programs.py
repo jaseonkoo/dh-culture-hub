@@ -30,7 +30,7 @@ def generate_time_slots(start_time, end_time):
         slots.append(curr.time()); curr += datetime.timedelta(minutes=30)
     return slots
 
-# ✨ 개선 1: 메일 에러를 숨기지 않고 화면에 띄워줍니다.
+# ✨ 메일 에러를 숨기지 않고 화면에 띄워줍니다.
 def send_email(to_email, subject, body):
     SMTP_S, SMTP_P = "smtp.dooray.com", 465
     try:
@@ -71,20 +71,18 @@ def run_mentoring():
         client = gspread.authorize(creds)
         return client.open("대한사료_멘토링_DB")
 
-    # ✨ 핵심 복원: 구글 API 호출 제한 방지를 위해 60초간 데이터를 메모리에 기억합니다!
     @st.cache_data(ttl=60, show_spinner=False)
     def get_sheet_data(sheet_name):
         try:
             doc = init_gspread()
             return doc.worksheet(sheet_name).get_all_records()
         except Exception as e:
-            # 에러가 나면 숨기지 않고 화면에 표시하여 디버깅을 돕습니다.
             st.error(f"⚠️ '{sheet_name}' 데이터를 불러오는 중 오류 발생: {e}")
             return []
 
     def fetch_latest_data(force=False):
         if force:
-            st.cache_data.clear() # 강제 새로고침 시 기억(캐시)을 지웁니다.
+            st.cache_data.clear() 
             
         try:
             st.session_state.mentors_data = get_sheet_data("mentors")
@@ -126,23 +124,7 @@ def run_mentoring():
                     if c in df.columns: df[c] = df[c].astype(str)
                 df = df.fillna("")
                 ws.update(values=[df.columns.values.tolist()] + df.values.tolist())
-            fetch_latest_data(force=True) # 저장 후에는 무조건 최신 데이터로 캐시를 갱신!
-            return True
-        except Exception as e: 
-            st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
-            return False
-    # ✨ 개선 2: 저장 속도 문제 해결 (저장 직후 예전 데이터를 불러오지 않도록 수정)
-    def safe_save(ws_name, data_list):
-        try:
-            doc = init_gspread()
-            ws = doc.worksheet(ws_name)
-            ws.clear()
-            if data_list:
-                df = pd.DataFrame(data_list)
-                for c in ['date', 'start', 'end', 'start_time', 'end_time']:
-                    if c in df.columns: df[c] = df[c].astype(str)
-                df = df.fillna("")
-                ws.update(values=[df.columns.values.tolist()] + df.values.tolist())
+            fetch_latest_data(force=True) 
             return True
         except Exception as e: 
             st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
@@ -239,7 +221,7 @@ def run_mentoring():
                                 else:
                                     st.warning("⚠️ 예약은 정상 저장되었으나 메일 발송에 실패했습니다. (위의 에러 메시지를 확인해주세요)")
                                 time.sleep(3)
-                                fetch_latest_data(force=True) # 여기서 확실하게 한번만 갱신!
+                                fetch_latest_data(force=True) 
                                 st.rerun()
                             else:
                                 status.update(label="처리 실패", state="error")
@@ -330,7 +312,6 @@ def run_mentoring():
     with tab4:
         st.subheader("👑 인사총무팀 전용 관리 시스템")
         
-        # 👇 이 두 줄을 추가해 주세요! (변수가 없으면 바로 만들어줍니다)
         if "admin_logged_in" not in st.session_state:
             st.session_state.admin_logged_in = False
             
@@ -363,9 +344,7 @@ def run_mentoring():
                         if safe_save("mentors", st.session_state.mentors_data):
                             fetch_latest_data(force=True); st.rerun()
                     st.divider()
-# ==========================================
-# ☕ [리더와의 대화] / 🎓 [원데이 클래스]
-# ==========================================
+
 # ==========================================
 # ☕ [리더와의 대화] - 멘토링과 동일한 5:5 완벽 대칭 구조
 # ==========================================
@@ -650,16 +629,7 @@ def run_leader_talk():
                     st.divider()
 
 # ==========================================
-# 🎓 [직무 원데이 클래스] - 개설, 신청, 명단 확인 통합
-# ==========================================
-# ==========================================
-# 🎓 [직무 원데이 클래스] - 강사/관리자 권한 분리 적용
-# ==========================================
-# ==========================================
-# 🎓 [직무 원데이 클래스] - 수강 취소 기능 추가 버전
-# ==========================================
-# ==========================================
-# 🎓 [직무 원데이 클래스] - 시작/종료 시간 입력 기능 추가
+# 🎓 [직무 원데이 클래스] 
 # ==========================================
 def run_class():
     st.markdown("""
@@ -680,20 +650,32 @@ def run_class():
     def reset_pw_c2():
         if "c_pw_t2" in st.session_state: st.session_state["c_pw_t2"] = ""
 
-    # DB 연동
+    # ==========================================
+    # ☁️ [진단 모드] DB 연동 및 에러 추적 로직
+    # ==========================================
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
     
     @st.cache_resource
     def init_gspread_class():
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
-        client = gspread.authorize(creds)
-        return client.open("대한사료_원데이클래스_DB")
+        try:
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
+            client = gspread.authorize(creds)
+            return client.open("대한사료_원데이클래스_DB")
+        except Exception as e:
+            st.error(f"❌ 구글 시트 파일을 열 수 없습니다: {e}")
+            return None
 
     @st.cache_data(ttl=60, show_spinner=False)
     def get_sheet_data_class(sheet_name):
-        try: doc = init_gspread_class(); return doc.worksheet(sheet_name).get_all_records()
-        except: return []
+        try: 
+            doc = init_gspread_class()
+            if doc:
+                return doc.worksheet(sheet_name).get_all_records()
+            return []
+        except Exception as e:
+            st.error(f"⚠️ '{sheet_name}' 탭을 읽는 중 오류 발생: {e}")
+            return []
 
     def fetch_latest_data_class(force=False):
         if force: st.cache_data.clear()
@@ -703,7 +685,8 @@ def run_class():
             st.session_state.instructors_data = get_sheet_data_class("instructors")
             ad_list = get_sheet_data_class("admin")
             st.session_state.c_admin_info = ad_list[0] if ad_list else {"id": "admin", "pw": "dhfeed1947"}
-        except: pass
+        except Exception as e:
+            st.error(f"⚠️ 데이터 초기화 중 오류: {e}")
 
     fetch_latest_data_class()
 
