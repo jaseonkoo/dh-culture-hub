@@ -949,7 +949,7 @@ def run_typing_game():
         client = gspread.authorize(creds)
         return client.open("대한사료_핵심가치_DB")
 
-    @st.cache_data(ttl=5, show_spinner=False) # 실시간 랭킹을 위해 캐시 시간을 5초로 짧게 설정!
+    @st.cache_data(ttl=5, show_spinner=False)
     def get_leaderboard():
         try:
             doc = init_gspread_typing()
@@ -974,10 +974,8 @@ def run_typing_game():
     tab1, tab2 = st.tabs(["🎮 게임 시작하기", "🏆 실시간 명예의 전당"])
 
     with tab1:
-        # 메모리(세션 상태) 설정
         if 't_step' not in st.session_state: st.session_state.t_step = 0
         if 't_is_playing' not in st.session_state: st.session_state.t_is_playing = False
-        if 't_start_time' not in st.session_state: st.session_state.t_start_time = 0
         if 't_player_name' not in st.session_state: st.session_state.t_player_name = ""
         if 't_player_team' not in st.session_state: st.session_state.t_player_team = ""
 
@@ -991,12 +989,15 @@ def run_typing_game():
         ]
 
         if not st.session_state.t_is_playing:
+            # 대기 화면: 이전 타이머 기록 확실히 청소
+            components.html("<script>sessionStorage.removeItem('typingStartTime'); sessionStorage.removeItem('typingEndTime');</script>", height=0)
+            
             st.subheader("도전자 정보 입력")
             c1, c2 = st.columns(2)
             p_name = c1.text_input("성함 (예: 홍길동)")
             p_team = c2.text_input("소속팀 (예: 인사총무팀)")
             
-            st.info("💡 **게임 규칙:** 시작 버튼을 누르는 순간부터 초시계가 굴러갑니다. 띄어쓰기까지 완벽하게 입력하고 Enter를 치세요!")
+            st.info("💡 **게임 규칙:** 첫 글자를 치는 순간부터 초시계가 작동합니다. 완료 후 자동으로 커서가 이동하니 키보드에서 손을 떼지 마세요!")
             
             if st.button("🚀 게임 시작하기", type="primary", use_container_width=True):
                 if p_name and p_team:
@@ -1004,7 +1005,6 @@ def run_typing_game():
                     st.session_state.t_player_team = p_team
                     st.session_state.t_is_playing = True
                     st.session_state.t_step = 0
-                    st.session_state.t_start_time = time.time() # 🐍 파이썬 공식 기록 시작!
                     st.rerun()
                 else:
                     st.warning("이름과 소속팀을 입력해야 명예의 전당에 오를 수 있습니다!")
@@ -1012,21 +1012,95 @@ def run_typing_game():
         else:
             is_finished = st.session_state.t_step >= len(values_data)
             
-            # 시각적 타이머 (JS는 화면에 초시계 굴러가는 효과만 줍니다)
-            if not is_finished:
-                components.html("""
-                <div id="stopwatch" style="font-size: 2rem; font-weight: bold; color: #ff4b4b; text-align: center; font-family: sans-serif;">⏱️ 0.00 초</div>
+            # ✨ 차장님이 작성하신 '타이머+커서 제어 마법사' JS 코드 (데이터 전송 기능 추가)
+            controller_html = f"""
+            <html>
+            <head>
+            <style>
+                body {{ margin: 0; font-family: sans-serif; display: flex; justify-content: center; align-items: center; }}
+                .timer-box {{ font-size: 1.8rem; font-weight: bold; color: #ff4b4b; }}
+                .success-box {{ font-size: 2.5rem; font-weight: bold; color: #4CAF50; }}
+            </style>
+            </head>
+            <body>
+                <div id="display-box" class="{'success-box' if is_finished else 'timer-box'}">
+                    {'🎉 타이핑 완료! (기록 전송 중...)' if is_finished else '⏱️ 진행 시간: '}<span id="stopwatch">0.00</span> 초
+                </div>
                 <script>
-                    let start = Date.now();
-                    setInterval(() => { document.getElementById('stopwatch').innerText = '⏱️ ' + ((Date.now() - start) / 1000).toFixed(2) + ' 초'; }, 50);
+                    const isFinished = {'true' if is_finished else 'false'};
+                    const parent = window.parent;
+                    const timerDisplay = document.getElementById('stopwatch');
+
+                    if (isFinished) {{
+                        // [요청 1] 끝났을 때: 타이머 즉시 정지 및 최종 시간 박제
+                        if (!sessionStorage.getItem('typingEndTime')) {{
+                            sessionStorage.setItem('typingEndTime', Date.now());
+                        }}
+                        let start = parseInt(sessionStorage.getItem('typingStartTime') || Date.now());
+                        let end = parseInt(sessionStorage.getItem('typingEndTime'));
+                        let finalTime = ((end - start) / 1000).toFixed(2);
+                        timerDisplay.innerText = finalTime;
+                        
+                        // ✨ Python으로 정확한 최종 시간 전송
+                        const hiddenInput = parent.document.querySelector('input[aria-label="hidden_time"]');
+                        if (hiddenInput && hiddenInput.value !== finalTime) {{
+                            let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                            nativeInputValueSetter.call(hiddenInput, finalTime);
+                            hiddenInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            hiddenInput.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                        }}
+                    }} else {{
+                        // 진행 중: 0.05초마다 타이머 화면 업데이트
+                        setInterval(() => {{
+                            if (sessionStorage.getItem('typingStartTime')) {{
+                                let start = parseInt(sessionStorage.getItem('typingStartTime'));
+                                let elapsed = (Date.now() - start) / 1000;
+                                timerDisplay.innerText = elapsed.toFixed(2);
+                            }}
+                        }}, 50);
+
+                        // [요청 2] 강력한 자동 커서(Focus) 유지 및 부정행위 방지
+                        setInterval(() => {{
+                            try {{
+                                const inputBox = parent.document.querySelector('input[aria-label="완벽히 입력하고 Enter를 누르세요"]');
+                                if (inputBox) {{
+                                    if (parent.document.activeElement !== inputBox) {{
+                                        inputBox.focus();
+                                    }}
+                                    
+                                    if (!inputBox.dataset.setupDone) {{
+                                        const blockEvent = e => {{ e.preventDefault(); alert("⚠️ 꼼수 금지! 직접 입력하세요."); }};
+                                        inputBox.addEventListener('paste', blockEvent);
+                                        inputBox.addEventListener('drop', blockEvent);
+                                        
+                                        inputBox.addEventListener('keydown', e => {{
+                                            if (e.key !== 'Enter' && e.key !== 'Tab') {{
+                                                if (!sessionStorage.getItem('typingStartTime')) {{
+                                                    sessionStorage.setItem('typingStartTime', Date.now());
+                                                }}
+                                            }}
+                                        }});
+                                        inputBox.dataset.setupDone = "true";
+                                    }}
+                                }}
+                            }} catch(err) {{ }}
+                        }}, 100);
+                    }}
                 </script>
-                """, height=60)
+            </body>
+            </html>
+            """
+            
+            components.html(controller_html, height=100)
             
             if not is_finished:
                 current_item = values_data[st.session_state.t_step]
+                
                 st.markdown(f"**{current_item['title']}**")
                 st.markdown(f"### 📝 {current_item['text']}")
                 
+                # 라벨을 기준으로 자바스크립트가 커서를 찾아갑니다
                 user_input = st.text_input("완벽히 입력하고 Enter를 누르세요", key=f"input_{st.session_state.t_step}")
                 
                 if user_input:
@@ -1035,32 +1109,37 @@ def run_typing_game():
                         st.rerun()
                     else:
                         st.error("⚠️ 오타가 있습니다! 틀린 부분을 고치고 다시 Enter를 누르세요.")
-            
+                        
             else:
-                # 게임 완료 시 파이썬으로 정확한 최종 시간 계산
-                final_time = round(time.time() - st.session_state.t_start_time, 2)
+                # 완료 후 JS로부터 최종 시간을 받아 DB에 저장하는 투명한 공간
+                st.markdown('<div style="opacity: 0; height: 0px; overflow: hidden;">', unsafe_allow_html=True)
+                js_time = st.text_input("hidden_time", key="hidden_time")
+                st.markdown('</div>', unsafe_allow_html=True)
                 
-                # 중복 저장 방지용 플래그
-                if 'score_saved' not in st.session_state:
+                if js_time and 'score_saved' not in st.session_state:
+                    final_time_float = float(js_time)
                     with st.spinner("📡 명예의 전당에 기록을 전송 중입니다..."):
-                        if save_score(st.session_state.t_player_name, st.session_state.t_player_team, final_time):
+                        if save_score(st.session_state.t_player_name, st.session_state.t_player_team, final_time_float):
                             st.session_state.score_saved = True
-                
-                st.balloons()
-                st.markdown(f"""
-                <div class="rank-card">
-                    <h2>🎉 {st.session_state.t_player_name}님, 완료를 축하합니다!</h2>
-                    <h1 style="color: #E67E22;">⏱️ 최종 기록: {final_time}초</h1>
-                    <p>대한사료의 핵심가치를 완벽히 내재화하셨습니다.</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.divider()
-                if st.button("🔄 처음부터 다시 도전하기"):
-                    st.session_state.t_is_playing = False
-                    st.session_state.t_step = 0
-                    if 'score_saved' in st.session_state: del st.session_state.score_saved
-                    st.rerun()
+                            st.rerun()
+                            
+                if 'score_saved' in st.session_state:
+                    st.balloons()
+                    st.markdown(f"""
+                    <div class="rank-card">
+                        <h2>🎉 {st.session_state.t_player_name}님, 완료를 축하합니다!</h2>
+                        <h1 style="color: #E67E22;">⏱️ 최종 기록: {js_time}초</h1>
+                        <p>대한사료의 핵심가치를 완벽히 내재화하셨습니다.</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.divider()
+                    if st.button("🔄 처음부터 다시 도전하기"):
+                        st.session_state.t_is_playing = False
+                        st.session_state.t_step = 0
+                        st.session_state.hidden_time = ""
+                        del st.session_state.score_saved
+                        st.rerun()
 
     # --- [🏆 Tab 2: 명예의 전당 (실시간 순위)] ---
     with tab2:
@@ -1074,13 +1153,11 @@ def run_typing_game():
         if not board_data:
             st.info("아직 등록된 기록이 없습니다. 첫 번째 타자왕에 도전하세요!")
         else:
-            # 기록(초) 기준으로 오름차순(빠른 순) 정렬
             try:
                 sorted_board = sorted(board_data, key=lambda x: float(x.get('기록(초)', 999)))
             except:
-                sorted_board = board_data # 에러 시 원본 유지
+                sorted_board = board_data
                 
-            # Top 3 강조 시각화
             top3 = sorted_board[:3]
             c1, c2, c3 = st.columns(3)
             medals = [("🥇 1위", "gold"), ("🥈 2위", "silver"), ("🥉 3위", "bronze")]
@@ -1099,7 +1176,6 @@ def run_typing_game():
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # 4위부터 10위까지 리스트업
             if len(sorted_board) > 3:
                 df = pd.DataFrame(sorted_board[3:10])
                 df.index = range(4, 4 + len(df))
