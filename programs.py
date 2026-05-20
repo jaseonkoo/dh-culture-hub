@@ -1045,3 +1045,156 @@ def run_typing_game():
                             sessionStorage.setItem('typingEndTime', Date.now());
                         }}
                         let start = parseInt(sessionStorage.getItem('typingStartTime') || Date.now());
+                        let end = parseInt(sessionStorage.getItem('typingEndTime'));
+                        let finalTime = ((end - start) / 1000).toFixed(2);
+                        timerDisplay.innerText = finalTime;
+                        
+                        // ✨ 중복 전송 및 충돌 방지를 위한 안전장치 (딱 한 번만 쏩니다!)
+                        if (!sessionStorage.getItem('scoreSent')) {{
+                            const hiddenInput = parent.document.querySelector('input[aria-label="hidden_time"]');
+                            if (hiddenInput && hiddenInput.value !== finalTime) {{
+                                let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                nativeInputValueSetter.call(hiddenInput, finalTime);
+                                hiddenInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                
+                                setTimeout(() => {{
+                                    hiddenInput.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                                }}, 50);
+                                
+                                sessionStorage.setItem('scoreSent', 'true');
+                            }}
+                        }}
+                    }} else {{
+                        setInterval(() => {{
+                            if (sessionStorage.getItem('typingStartTime')) {{
+                                let start = parseInt(sessionStorage.getItem('typingStartTime'));
+                                let elapsed = (Date.now() - start) / 1000;
+                                timerDisplay.innerText = elapsed.toFixed(2);
+                            }}
+                        }}, 50);
+
+                        setInterval(() => {{
+                            try {{
+                                const inputBox = parent.document.querySelector('input[aria-label="완벽히 입력하고 Enter를 누르세요"]');
+                                if (inputBox) {{
+                                    if (parent.document.activeElement !== inputBox) {{
+                                        inputBox.focus();
+                                    }}
+                                    
+                                    if (!inputBox.dataset.setupDone) {{
+                                        const blockEvent = e => {{ e.preventDefault(); alert("⚠️ 꼼수 금지! 직접 입력하세요."); }};
+                                        inputBox.addEventListener('paste', blockEvent);
+                                        inputBox.addEventListener('drop', blockEvent);
+                                        
+                                        inputBox.addEventListener('keydown', e => {{
+                                            if (e.key !== 'Enter' && e.key !== 'Tab') {{
+                                                if (!sessionStorage.getItem('typingStartTime')) {{
+                                                    sessionStorage.setItem('typingStartTime', Date.now());
+                                                }}
+                                            }}
+                                        }});
+                                        inputBox.dataset.setupDone = "true";
+                                    }}
+                                }}
+                            }} catch(err) {{ }}
+                        }}, 100);
+                    }}
+                </script>
+            </body>
+            </html>
+            """
+            
+            components.html(controller_html, height=100)
+            
+            if not is_finished:
+                current_item = values_data[st.session_state.t_step]
+                
+                st.markdown(f"**{current_item['title']}**")
+                st.markdown(f"### 📝 {current_item['text']}")
+                
+                user_input = st.text_input("완벽히 입력하고 Enter를 누르세요", key=f"input_{st.session_state.t_step}")
+                
+                if user_input:
+                    if user_input == current_item['text']:
+                        st.session_state.t_step += 1
+                        st.rerun()
+                    else:
+                        st.error("⚠️ 오타가 있습니다! 틀린 부분을 고치고 다시 Enter를 누르세요.")
+                        
+            else:
+                # 라벨을 숨겨서 보이지 않는 입력창 생성
+                js_time = st.text_input("hidden_time", key="hidden_time", label_visibility="collapsed")
+                
+                # 🚀 핵심 로직: 시간이 들어오면 '백그라운드'로 저장을 넘기고 화면은 즉시 빵빠레를 터뜨립니다!
+                if js_time and 'score_saved' not in st.session_state:
+                    st.session_state.score_saved = True
+                    final_time_float = float(js_time)
+                    
+                    # 뒤에서 몰래 구글 시트에 저장하는 일꾼(Thread) 생성
+                    def bg_save():
+                        save_score(st.session_state.t_player_name, st.session_state.t_player_team, final_time_float)
+                    
+                    threading.Thread(target=bg_save).start()
+                    st.rerun() # 저장 일꾼을 출발시키자마자 즉시 새로고침하여 빵빠레 화면으로 넘어감!
+                            
+                # 이미 저장이 지시된 상태라면 즉각적으로 결과 화면 출력 (기다림 제로!)
+                if 'score_saved' in st.session_state:
+                    st.balloons()
+                    st.markdown(f"""
+                    <div class="rank-card">
+                        <h2>🎉 {st.session_state.t_player_name}님, 완료를 축하합니다!</h2>
+                        <h1 style="color: #E67E22;">⏱️ 최종 기록: {js_time}초</h1>
+                        <p>대한사료의 핵심가치를 완벽히 내재화하셨습니다.</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.divider()
+                    if st.button("🔄 처음부터 다시 도전하기"):
+                        st.session_state.t_is_playing = False
+                        st.session_state.t_step = 0
+                        st.session_state.hidden_time = ""
+                        if 'score_saved' in st.session_state:
+                            del st.session_state.score_saved
+                        st.rerun()
+
+    # --- [🏆 Tab 2: 명예의 전당 (실시간 순위)] ---
+    with tab2:
+        st.subheader("🏆 타자왕 명예의 전당 (Top 10)")
+        if st.button("🔄 순위 새로고침"):
+            get_leaderboard.clear()
+            st.rerun()
+            
+        board_data = get_leaderboard()
+        
+        if not board_data:
+            st.info("아직 등록된 기록이 없습니다. 첫 번째 타자왕에 도전하세요!")
+        else:
+            try:
+                sorted_board = sorted(board_data, key=lambda x: float(x.get('기록(초)', 999)))
+            except:
+                sorted_board = board_data
+                
+            top3 = sorted_board[:3]
+            c1, c2, c3 = st.columns(3)
+            medals = [("🥇 1위", "gold"), ("🥈 2위", "silver"), ("🥉 3위", "bronze")]
+            cols = [c1, c2, c3]
+            
+            for i in range(min(len(top3), 3)):
+                with cols[i]:
+                    st.markdown(f"""
+                    <div style="border: 1px solid #ddd; padding: 15px; border-radius: 8px; text-align: center; background-color: #fff;">
+                        <div class="{medals[i][1]}">{medals[i][0]}</div>
+                        <h3 style="margin: 10px 0;">{top3[i].get('이름', '-')}</h3>
+                        <p style="color: #666; margin: 0;">{top3[i].get('소속팀', '-')}</p>
+                        <h4 style="color: #ff4b4b; margin-top: 10px;">{top3[i].get('기록(초)', '-')}초</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            if len(sorted_board) > 3:
+                df = pd.DataFrame(sorted_board[3:10])
+                df.index = range(4, 4 + len(df))
+                df.index.name = "순위"
+                st.dataframe(df[['이름', '소속팀', '기록(초)', '달성일']], use_container_width=True)
