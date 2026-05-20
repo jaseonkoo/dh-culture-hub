@@ -932,6 +932,15 @@ def run_typing_game():
         .gold { color: #D4AF37; font-size: 1.5em; font-weight: bold; }
         .silver { color: #C0C0C0; font-size: 1.3em; font-weight: bold; }
         .bronze { color: #CD7F32; font-size: 1.1em; font-weight: bold; }
+        
+        /* ✨ 꼼수 완벽 차단: hidden_time 입력창을 화면에서 아예 삭제하는 마법의 CSS */
+        div[data-testid="stTextInput"]:has(input[aria-label="hidden_time"]) {
+            display: none !important;
+            width: 0px;
+            height: 0px;
+            overflow: hidden;
+            opacity: 0;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -1012,7 +1021,6 @@ def run_typing_game():
         else:
             is_finished = st.session_state.t_step >= len(values_data)
             
-            # ✨ 차장님이 작성하신 '타이머+커서 제어 마법사' JS 코드 (데이터 전송 기능 추가)
             controller_html = f"""
             <html>
             <head>
@@ -1032,7 +1040,6 @@ def run_typing_game():
                     const timerDisplay = document.getElementById('stopwatch');
 
                     if (isFinished) {{
-                        // [요청 1] 끝났을 때: 타이머 즉시 정지 및 최종 시간 박제
                         if (!sessionStorage.getItem('typingEndTime')) {{
                             sessionStorage.setItem('typingEndTime', Date.now());
                         }}
@@ -1041,9 +1048,13 @@ def run_typing_game():
                         let finalTime = ((end - start) / 1000).toFixed(2);
                         timerDisplay.innerText = finalTime;
                         
-                        // ✨ Python으로 정확한 최종 시간 전송
+                        // ✨ Python으로 데이터 전송 및 입력창 강제 숨김 처리
                         const hiddenInput = parent.document.querySelector('input[aria-label="hidden_time"]');
                         if (hiddenInput && hiddenInput.value !== finalTime) {{
+                            // JS로도 이중으로 숨겨줍니다.
+                            const container = hiddenInput.closest('div[data-testid="stTextInput"]');
+                            if (container) container.style.display = 'none';
+                            
                             let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                             nativeInputValueSetter.call(hiddenInput, finalTime);
                             hiddenInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
@@ -1051,7 +1062,7 @@ def run_typing_game():
                             hiddenInput.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
                         }}
                     }} else {{
-                        // 진행 중: 0.05초마다 타이머 화면 업데이트
+                        // 진행 중: 0.05초마다 타이머 업데이트
                         setInterval(() => {{
                             if (sessionStorage.getItem('typingStartTime')) {{
                                 let start = parseInt(sessionStorage.getItem('typingStartTime'));
@@ -1060,7 +1071,7 @@ def run_typing_game():
                             }}
                         }}, 50);
 
-                        // [요청 2] 강력한 자동 커서(Focus) 유지 및 부정행위 방지
+                        // 강력한 자동 커서 및 부정행위 방지
                         setInterval(() => {{
                             try {{
                                 const inputBox = parent.document.querySelector('input[aria-label="완벽히 입력하고 Enter를 누르세요"]');
@@ -1100,7 +1111,6 @@ def run_typing_game():
                 st.markdown(f"**{current_item['title']}**")
                 st.markdown(f"### 📝 {current_item['text']}")
                 
-                # 라벨을 기준으로 자바스크립트가 커서를 찾아갑니다
                 user_input = st.text_input("완벽히 입력하고 Enter를 누르세요", key=f"input_{st.session_state.t_step}")
                 
                 if user_input:
@@ -1111,10 +1121,8 @@ def run_typing_game():
                         st.error("⚠️ 오타가 있습니다! 틀린 부분을 고치고 다시 Enter를 누르세요.")
                         
             else:
-                # 완료 후 JS로부터 최종 시간을 받아 DB에 저장하는 투명한 공간
-                st.markdown('<div style="opacity: 0; height: 0px; overflow: hidden;">', unsafe_allow_html=True)
-                js_time = st.text_input("hidden_time", key="hidden_time")
-                st.markdown('</div>', unsafe_allow_html=True)
+                # ✨ 라벨을 감춰서(collapsed) 뒷단에서만 작동하게 만듭니다.
+                js_time = st.text_input("hidden_time", key="hidden_time", label_visibility="collapsed")
                 
                 if js_time and 'score_saved' not in st.session_state:
                     final_time_float = float(js_time)
