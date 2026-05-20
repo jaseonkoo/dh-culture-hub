@@ -925,8 +925,6 @@ def run_class():
 # ⌨️ [핵심가치 타자 게임 & 명예의 전당]
 # ==========================================
 def run_typing_game():
-    import threading  # 🚀 화면 멈춤을 방지하는 백그라운드 처리 도구
-    
     st.markdown("""
         <style>
         .stTextInput, .stSelectbox { margin-bottom: 12px !important; }
@@ -934,15 +932,6 @@ def run_typing_game():
         .gold { color: #D4AF37; font-size: 1.5em; font-weight: bold; }
         .silver { color: #C0C0C0; font-size: 1.3em; font-weight: bold; }
         .bronze { color: #CD7F32; font-size: 1.1em; font-weight: bold; }
-        
-        /* ✨ 꼼수 완벽 차단: hidden_time 입력창을 화면에서 아예 삭제하는 마법의 CSS */
-        div[data-testid="stTextInput"]:has(input[aria-label="hidden_time"]) {
-            display: none !important;
-            width: 0px;
-            height: 0px;
-            overflow: hidden;
-            opacity: 0;
-        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -975,9 +964,10 @@ def run_typing_game():
             ws = doc.worksheet("leaderboard")
             today_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
             ws.append_row([name, team, score, today_str])
-            get_leaderboard.clear() # 저장 후 캐시 갱신
+            get_leaderboard.clear() # 저장 후 순위표 캐시 즉시 초기화
             return True
         except Exception as e:
+            st.error(f"⚠️ 기록 저장에 실패했습니다. 관리자에게 문의하세요.")
             return False
 
     # 탭 구성
@@ -999,7 +989,6 @@ def run_typing_game():
         ]
 
         if not st.session_state.t_is_playing:
-            # 대기 화면: 이전 타이머 및 전송 기록 확실히 청소
             components.html("<script>sessionStorage.removeItem('typingStartTime'); sessionStorage.removeItem('typingEndTime'); sessionStorage.removeItem('scoreSent');</script>", height=0)
             
             st.subheader("도전자 정보 입력")
@@ -1049,22 +1038,40 @@ def run_typing_game():
                         let finalTime = ((end - start) / 1000).toFixed(2);
                         timerDisplay.innerText = finalTime;
                         
-                        // ✨ 중복 전송 및 충돌 방지를 위한 안전장치 (딱 한 번만 쏩니다!)
-                        if (!sessionStorage.getItem('scoreSent')) {{
+                        // 🚀 해결 포인트: 브라우저 속도를 고려하여 0.1초마다 입력창을 찾아 전송합니다.
+                        let attempts = 0;
+                        let trySend = setInterval(() => {{
                             const hiddenInput = parent.document.querySelector('input[aria-label="hidden_time"]');
-                            if (hiddenInput && hiddenInput.value !== finalTime) {{
-                                let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                nativeInputValueSetter.call(hiddenInput, finalTime);
-                                hiddenInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            if (hiddenInput) {{
+                                clearInterval(trySend); // 찾았으면 반복 중지
                                 
-                                setTimeout(() => {{
-                                    hiddenInput.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
-                                }}, 50);
-                                
-                                sessionStorage.setItem('scoreSent', 'true');
+                                // 화면에서 보이지 않게 처리 (display none 대신 기능이 살아있는 위치 밀어내기)
+                                const container = hiddenInput.closest('div[data-testid="stTextInput"]');
+                                if (container) {{
+                                    container.style.position = 'absolute';
+                                    container.style.left = '-9999px';
+                                }}
+
+                                if (!sessionStorage.getItem('scoreSent')) {{
+                                    let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                    nativeInputValueSetter.call(hiddenInput, finalTime);
+                                    
+                                    hiddenInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                    hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                    
+                                    // 확실한 전송을 위해 약간의 틈을 두고 Enter 키 이벤트 발생
+                                    setTimeout(() => {{
+                                        hiddenInput.focus();
+                                        hiddenInput.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                                    }}, 100);
+                                    
+                                    sessionStorage.setItem('scoreSent', 'true');
+                                }}
                             }}
-                        }}
+                            attempts++;
+                            if (attempts > 50) clearInterval(trySend); // 5초 이상 못 찾으면 포기
+                        }}, 100);
+
                     }} else {{
                         setInterval(() => {{
                             if (sessionStorage.getItem('typingStartTime')) {{
@@ -1083,7 +1090,7 @@ def run_typing_game():
                                     }}
                                     
                                     if (!inputBox.dataset.setupDone) {{
-                                        const blockEvent = e => {{ e.preventDefault(); alert("⚠️ 꼼수 금지! 직접 입력하세요."); }};
+                                        const blockEvent = e => {{ e.preventDefault(); alert("⚠️ 꼼수 금지! 직접 치세요."); }};
                                         inputBox.addEventListener('paste', blockEvent);
                                         inputBox.addEventListener('drop', blockEvent);
                                         
@@ -1123,22 +1130,18 @@ def run_typing_game():
                         st.error("⚠️ 오타가 있습니다! 틀린 부분을 고치고 다시 Enter를 누르세요.")
                         
             else:
-                # 라벨을 숨겨서 보이지 않는 입력창 생성
+                # 라벨을 숨겨 기능은 살아있고 눈에만 보이지 않게 처리
                 js_time = st.text_input("hidden_time", key="hidden_time", label_visibility="collapsed")
                 
-                # 🚀 핵심 로직: 시간이 들어오면 '백그라운드'로 저장을 넘기고 화면은 즉시 빵빠레를 터뜨립니다!
                 if js_time and 'score_saved' not in st.session_state:
-                    st.session_state.score_saved = True
                     final_time_float = float(js_time)
                     
-                    # 뒤에서 몰래 구글 시트에 저장하는 일꾼(Thread) 생성
-                    def bg_save():
-                        save_score(st.session_state.t_player_name, st.session_state.t_player_team, final_time_float)
-                    
-                    threading.Thread(target=bg_save).start()
-                    st.rerun() # 저장 일꾼을 출발시키자마자 즉시 새로고침하여 빵빠레 화면으로 넘어감!
+                    # 🚀 충돌 없이 안전하게 순차적으로 저장하며, 유저에게 저장 상황을 스피너로 알려줍니다.
+                    with st.spinner("📡 최종 기록 확인 및 명예의 전당 등록 중... (약 2~3초 소요)"):
+                        if save_score(st.session_state.t_player_name, st.session_state.t_player_team, final_time_float):
+                            st.session_state.score_saved = True
+                    st.rerun()
                             
-                # 이미 저장이 지시된 상태라면 즉각적으로 결과 화면 출력 (기다림 제로!)
                 if 'score_saved' in st.session_state:
                     st.balloons()
                     st.markdown(f"""
@@ -1154,8 +1157,7 @@ def run_typing_game():
                         st.session_state.t_is_playing = False
                         st.session_state.t_step = 0
                         st.session_state.hidden_time = ""
-                        if 'score_saved' in st.session_state:
-                            del st.session_state.score_saved
+                        del st.session_state.score_saved
                         st.rerun()
 
     # --- [🏆 Tab 2: 명예의 전당 (실시간 순위)] ---
