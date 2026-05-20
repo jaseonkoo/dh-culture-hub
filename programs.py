@@ -1124,14 +1124,8 @@ def run_typing_game():
                 # ✨ 라벨을 감춰서(collapsed) 뒷단에서만 작동하게 만듭니다.
                 js_time = st.text_input("hidden_time", key="hidden_time", label_visibility="collapsed")
                 
-                if js_time and 'score_saved' not in st.session_state:
-                    final_time_float = float(js_time)
-                    with st.spinner("📡 명예의 전당에 기록을 전송 중입니다..."):
-                        if save_score(st.session_state.t_player_name, st.session_state.t_player_team, final_time_float):
-                            st.session_state.score_saved = True
-                            st.rerun()
-                            
-                if 'score_saved' in st.session_state:
+                if js_time:
+                    # 🚀 개선 1: 화면 멈춤 방지! 결과를 무조건 '먼저' 화면에 쏴줍니다. (체감 속도 0.1초)
                     st.balloons()
                     st.markdown(f"""
                     <div class="rank-card">
@@ -1141,12 +1135,21 @@ def run_typing_game():
                     </div>
                     """, unsafe_allow_html=True)
                     
+                    # 🚀 개선 2: 화면을 띄워둔 상태로 아래쪽에서 조용히 구글 시트에 저장합니다.
+                    if 'score_saved' not in st.session_state:
+                        final_time_float = float(js_time)
+                        with st.spinner("📡 명예의 전당에 기록을 안전하게 등록하고 있습니다..."):
+                            if save_score(st.session_state.t_player_name, st.session_state.t_player_team, final_time_float):
+                                st.session_state.score_saved = True
+                                # (기존에 있던 불필요한 st.rerun()을 삭제하여 화면 깜빡임을 없앴습니다)
+                    
                     st.divider()
                     if st.button("🔄 처음부터 다시 도전하기"):
                         st.session_state.t_is_playing = False
                         st.session_state.t_step = 0
                         st.session_state.hidden_time = ""
-                        del st.session_state.score_saved
+                        if 'score_saved' in st.session_state:
+                            del st.session_state.score_saved
                         st.rerun()
 
     # --- [🏆 Tab 2: 명예의 전당 (실시간 순위)] ---
