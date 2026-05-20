@@ -1156,10 +1156,14 @@ def run_typing_game():
                     if st.button("🔄 처음부터 다시 도전하기"):
                         st.session_state.t_is_playing = False
                         st.session_state.t_step = 0
-                        st.session_state.hidden_time = ""
-                        del st.session_state.score_saved
+                        
+                        # ✨ 값을 덮어씌우지 않고 기억 자체를 안전하게 지워줍니다.
+                        if 'hidden_time' in st.session_state:
+                            del st.session_state['hidden_time']
+                        if 'score_saved' in st.session_state:
+                            del st.session_state['score_saved']
+                            
                         st.rerun()
-
     # --- [🏆 Tab 2: 명예의 전당 (실시간 순위)] ---
     with tab2:
         st.subheader("🏆 타자왕 명예의 전당 (Top 10)")
