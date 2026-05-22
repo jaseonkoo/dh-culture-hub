@@ -357,10 +357,8 @@ def run_mentoring():
                                             
                                             if safe_save("reservations", st.session_state.reservations):
                                                 st.success("후기가 성공적으로 저장되었습니다!")
-                                                import time
                                                 time.sleep(1.5)
                                                 st.rerun()
-
     # --- [👑 Tab 4: 관리자 메뉴] ---
     with tab4:
         st.subheader("👑 인사총무팀 전용 관리 시스템")
