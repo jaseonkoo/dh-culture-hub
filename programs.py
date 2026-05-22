@@ -61,7 +61,7 @@ def run_mentoring():
     st.markdown("---")
 
     # ==========================================
-    # ☁️ 구글 스프레드시트 연동 로직 (안정성 최우선 복원)
+    # ☁️ 구글 스프레드시트 연동 로직
     # ==========================================
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
@@ -270,14 +270,18 @@ def run_mentoring():
                             fetch_latest_data(force=True)
                             st.rerun()
 
-    # --- [📋 Tab 3: 멘토 예약 관리] ---
+    # --- [📋 Tab 3: 멘토 예약 관리 (후기 작성 기능 추가)] ---
     with tab3:
-        st.subheader("📋 멘티 신청 현황 관리")
+        st.subheader("📋 멘티 신청 현황 및 후기 관리")
         m_sel3 = st.selectbox("본인 성함 선택", mentor_names, key="m_sel_t3", on_change=reset_pw_t3)
         if m_sel3 != "선택해주세요":
             minfo3 = next((m for m in st.session_state.get('mentors_data', []) if m['name']==m_sel3), None)
             if minfo3 and st.text_input("비번 확인", type="password", key="m_pw_t3") == str(minfo3['pw']):
                 my_res = [x for x in st.session_state.get('reservations', []) if x['mentor']==m_sel3]
+                
+                # 정렬: 대기중 -> 승인됨 -> 거절/취소 순으로 정렬하여 보기 편하게
+                my_res.sort(key=lambda x: 0 if x['status'] == "대기중" else (1 if x['status'] in ["승인됨", "완료(후기작성됨)"] else 2))
+                
                 for r in my_res:
                     with st.expander(f"[{r['status']}] {r['date']}({WEEKS[r['date'].weekday()]}) | {r['mentee_name']}님"):
                         col_r1, col_r2 = st.columns(2)
@@ -286,6 +290,7 @@ def run_mentoring():
                         with col_r2:
                             st.write(f"- 시간: {r['start_time']} ~ {r['end_time']}\n- 주제: {r['topic']}")
                         
+                        # 1. 예약 승인/거절 단계
                         if r['status'] == "대기중":
                             b1, b2 = st.columns(2)
                             if b1.button("✅ 승인", key=f"ok_{r['id']}", use_container_width=True):
@@ -308,6 +313,53 @@ def run_mentoring():
                                     safe_save("slots", st.session_state.available_slots)
                                     fetch_latest_data(force=True)
                                     st.rerun()
+
+                        # ✨ 2. 후기 작성 단계 (승인이 완료된 이후 활성화)
+                        elif r['status'] in ["승인됨", "완료(후기작성됨)"]:
+                            st.divider()
+                            
+                            # 이미 후기를 작성한 경우
+                            if r.get('review_text'):
+                                st.success(f"**📝 작성된 멘토링 후기** (진행일: {r.get('review_date', '-')})")
+                                st.write(f"- **참석자**: {r.get('review_mentor', '-')} 멘토 & {r.get('review_mentee', '-')} 멘티")
+                                st.info(r['review_text'])
+                                
+                                # 수정이 필요할 경우를 대비한 버튼
+                                if st.button("✏️ 후기 수정하기", key=f"edit_rev_{r['id']}"):
+                                    r['status'] = "승인됨" # 상태를 다시 작성 전으로 되돌림
+                                    r['review_text'] = ""
+                                    if safe_save("reservations", st.session_state.reservations):
+                                        st.rerun()
+                            
+                            # 후기를 아직 작성하지 않은 경우 (작성 폼 노출)
+                            else:
+                                with st.form(key=f"review_form_{r['id']}"):
+                                    st.markdown("#### 📝 멘토링 진행 후기 작성")
+                                    
+                                    c1, c2, c3 = st.columns(3)
+                                    # 사전에 입력된 정보(일자, 멘토, 멘티)를 자동으로 불러와서 입력창에 세팅 (수정 가능)
+                                    rev_date = c1.date_input("실제 진행 일자", value=r['date'], key=f"rd_{r['id']}")
+                                    rev_mentor = c2.text_input("멘토 이름", value=r['mentor'], key=f"rm_{r['id']}")
+                                    rev_mentee = c3.text_input("멘티 이름", value=r['mentee_name'], key=f"rme_{r['id']}")
+                                    
+                                    rev_text = st.text_area("후기 내용", placeholder="멘토링에서 나눈 주요 내용, 피드백, 느낀 점을 자유롭게 남겨주세요.", key=f"rt_{r['id']}")
+                                    
+                                    if st.form_submit_button("💾 후기 저장하기", use_container_width=True):
+                                        if rev_text.strip() == "":
+                                            st.error("후기 내용을 입력해 주세요!")
+                                        else:
+                                            # 입력된 정보 업데이트
+                                            r['review_date'] = str(rev_date)
+                                            r['review_mentor'] = rev_mentor
+                                            r['review_mentee'] = rev_mentee
+                                            r['review_text'] = rev_text
+                                            r['status'] = "완료(후기작성됨)" # 캡처 화면 텍스트가 바뀔 수 있도록 상태 업데이트
+                                            
+                                            if safe_save("reservations", st.session_state.reservations):
+                                                st.success("후기가 성공적으로 저장되었습니다!")
+                                                import time
+                                                time.sleep(1.5)
+                                                st.rerun()
 
     # --- [👑 Tab 4: 관리자 메뉴] ---
     with tab4:
@@ -345,7 +397,6 @@ def run_mentoring():
                         if safe_save("mentors", st.session_state.mentors_data):
                             fetch_latest_data(force=True); st.rerun()
                     st.divider()
-
 # ==========================================
 # ☕ [리더와의 대화] - 멘토링과 동일한 5:5 완벽 대칭 구조
 # ==========================================
