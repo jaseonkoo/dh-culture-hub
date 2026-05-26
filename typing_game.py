@@ -9,12 +9,14 @@ def run_typing_game():
         .silver { color: #C0C0C0; font-size: 1.3em; font-weight: bold; }
         .bronze { color: #CD7F32; font-size: 1.1em; font-weight: bold; }
         
+        /* ✨ 멈춤 해결: 아예 지우지 않고 화면 밖으로 멀리 밀어내어 기능은 100% 살려둡니다! */
         div[data-testid="stTextInput"]:has(input[aria-label="hidden_time"]) {
-            display: none !important;
-            width: 0px;
-            height: 0px;
-            overflow: hidden;
-            opacity: 0;
+            position: absolute !important;
+            left: -9999px !important;
+            opacity: 0 !important;
+            height: 0px !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -126,20 +128,19 @@ def run_typing_game():
                             if (hiddenInput) {{
                                 clearInterval(trySend); 
                                 
-                                const container = hiddenInput.closest('div[data-testid="stTextInput"]');
-                                if (container) {{ container.style.position = 'absolute'; container.style.left = '-9999px'; }}
-
                                 if (!sessionStorage.getItem('scoreSent')) {{
                                     let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
                                     nativeInputValueSetter.call(hiddenInput, finalTime);
                                     
                                     hiddenInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                    hiddenInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
                                     
+                                    // ✨ 스트림릿 서버에 확실히 값을 넘기는 핵심 3단 콤보 (포커스 -> 엔터 -> 블러)
                                     setTimeout(() => {{
                                         hiddenInput.focus();
                                         hiddenInput.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
+                                        hiddenInput.blur(); 
                                     }}, 100);
+                                    
                                     sessionStorage.setItem('scoreSent', 'true');
                                 }}
                             }}
@@ -207,6 +208,7 @@ def run_typing_game():
                 
                 if js_time and 'score_saved' not in st.session_state:
                     final_time_float = float(js_time)
+                    
                     with st.spinner("📡 최종 기록 확인 및 명예의 전당 등록 중... (약 2~3초 소요)"):
                         if save_score(st.session_state.t_player_name, st.session_state.t_player_team, final_time_float):
                             st.session_state.score_saved = True
