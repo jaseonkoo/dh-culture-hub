@@ -92,8 +92,11 @@ def run_leader_talk():
         if st.button("🔄 최신 현황 불러오기", key="l_refresh_1"): fetch_latest_data_leader(force=True); st.rerun()
 
         with st.expander("📢 예약 가능 현황 확인", expanded=True):
-            all_slots = st.session_state.get('l_available_slots', [])
-            if not all_slots: st.info("등록된 일정이 없습니다.")
+            # ✨ 개선 포인트: 오늘을 포함하여 미래의 일정만 필터링합니다. (과거 일정 숨김)
+            today_date = datetime.date.today()
+            all_slots = [s for s in st.session_state.get('l_available_slots', []) if s['date'] >= today_date]
+            
+            if not all_slots: st.info("현재 등록된 신청 가능한 일정이 없습니다.")
             else:
                 summ = {}
                 for s in all_slots:
@@ -106,7 +109,7 @@ def run_leader_talk():
 
         st.markdown("---")
         
-        # 🚀 개선 포인트 1: Tab 키 순서에 맞춘 UI 재배치 (위에서 아래로, 좌에서 우로 자연스럽게 이동)
+        # UI 배치를 위에서 아래로 흐르는 Tab 순서에 맞춤
         r1_c1, r1_c2 = st.columns(2)
         m_n = r1_c1.text_input("신청자 성함", key="l_n_t1")
         m_t = r1_c2.text_input("팀명", key="l_t_t1")
@@ -118,7 +121,9 @@ def run_leader_talk():
 
         r3_c1, r3_c2 = st.columns(2)
         selected_m = r3_c1.selectbox("리더 선택", leader_names, key="l_s_t1")
-        sel_date = r3_c2.date_input("날짜 선택", datetime.date.today() + datetime.timedelta(days=1), key="l_d_t1")
+        
+        # ✨ 개선 포인트: 한국식 날짜 포맷 (YYYY/MM/DD) 적용
+        sel_date = r3_c2.date_input("날짜 선택", datetime.date.today() + datetime.timedelta(days=1), key="l_d_t1", format="YYYY/MM/DD")
             
         if selected_m != "선택해주세요":
             p = next((m for m in st.session_state.get('leaders_data', []) if m['name'] == selected_m), None)
@@ -137,7 +142,7 @@ def run_leader_talk():
             if slots:
                 st.markdown("---")
                 
-                # 🚀 개선 포인트 2: 시간 선택창을 없애고 등록된 시간을 깔끔하게 자동 반영!
+                # 리더가 올려둔 일정을 자동으로 불러와서 매칭 (시간 선택창 생략)
                 ts = slots[0]['start']
                 te = slots[0]['end']
                 loc = slots[0].get('location', '-')
