@@ -8,7 +8,7 @@ def run_mentoring():
         </style>
     """, unsafe_allow_html=True)
 
-    st.header("🤝 사내 멘토링")
+    st.header("🤝 동반성장 멘토링")
     st.caption("대한사료 임직원 간의 성장을 돕는 실시간 소통 플랫폼")
     st.markdown("---")
 
