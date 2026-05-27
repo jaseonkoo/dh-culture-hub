@@ -1,3 +1,10 @@
+import streamlit as st
+import datetime
+import uuid
+import pandas as pd
+import gspread
+import time
+from oauth2client.service_account import ServiceAccountCredentials
 from utils import *
 
 def run_leader_talk():
@@ -98,56 +105,60 @@ def run_leader_talk():
                     for single_info in sorted(infos): st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{single_info}")
 
         st.markdown("---")
-        col_left, col_right = st.columns(2)
         
-        with col_left:
-            m_n = st.text_input("신청자 성함", key="l_n_t1")
-            m_p = st.text_input("직급", key="l_p_t1")
-            selected_m = st.selectbox("리더 선택", leader_names, key="l_s_t1")
-            sel_date = st.date_input("날짜 선택", datetime.date.today() + datetime.timedelta(days=1), key="l_d_t1")
-            
-        with col_right:
-            m_t = st.text_input("팀명", key="l_t_t1")
-            m_e = st.text_input("사내 이메일", key="l_e_t1", placeholder="example@daehanfeed.co.kr")
-            if m_e and not is_company_email(m_e): st.error("🚫 @daehanfeed.co.kr 전용")
-            
-            if selected_m != "선택해주세요":
-                p = next((m for m in st.session_state.get('leaders_data', []) if m['name'] == selected_m), None)
-                if p: 
-                    st.markdown(f"""
-                    <div style="border: 2px solid #2ECC71; padding: 18px; border-radius: 12px; background-color: #EAFDF1; margin-top: 10px;">
-                        <h4 style="margin-top:0; color: #1E8449;">👑 {p['name']} {p.get('position','')}</h4>
-                        <p style="margin-bottom: 8px; font-size: 0.95em;">🏢 소속: {p.get('team','')}<br>🎯 담당/전문분야: {p.get('expertise','')}</p>
-                        <div style="background-color: white; padding: 10px; border-radius: 8px; border-left: 4px solid #2ECC71;">
-                            <p style="font-size: 0.9em; margin: 0; color: #555;"><i>"{p.get('greeting','')}"</i></p>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+        # 🚀 개선 포인트 1: Tab 키 순서에 맞춘 UI 재배치 (위에서 아래로, 좌에서 우로 자연스럽게 이동)
+        r1_c1, r1_c2 = st.columns(2)
+        m_n = r1_c1.text_input("신청자 성함", key="l_n_t1")
+        m_t = r1_c2.text_input("팀명", key="l_t_t1")
 
+        r2_c1, r2_c2 = st.columns(2)
+        m_p = r2_c1.text_input("직급", key="l_p_t1")
+        m_e = r2_c2.text_input("사내 이메일", key="l_e_t1", placeholder="example@daehanfeed.co.kr")
+        if m_e and not is_company_email(m_e): st.error("🚫 @daehanfeed.co.kr 전용 이메일을 입력해주세요.")
+
+        r3_c1, r3_c2 = st.columns(2)
+        selected_m = r3_c1.selectbox("리더 선택", leader_names, key="l_s_t1")
+        sel_date = r3_c2.date_input("날짜 선택", datetime.date.today() + datetime.timedelta(days=1), key="l_d_t1")
+            
         if selected_m != "선택해주세요":
+            p = next((m for m in st.session_state.get('leaders_data', []) if m['name'] == selected_m), None)
+            if p: 
+                st.markdown(f"""
+                <div style="border: 2px solid #2ECC71; padding: 18px; border-radius: 12px; background-color: #EAFDF1; margin-top: 10px;">
+                    <h4 style="margin-top:0; color: #1E8449;">👑 {p['name']} {p.get('position','')}</h4>
+                    <p style="margin-bottom: 8px; font-size: 0.95em;">🏢 소속: {p.get('team','')}<br>🎯 담당/전문분야: {p.get('expertise','')}</p>
+                    <div style="background-color: white; padding: 10px; border-radius: 8px; border-left: 4px solid #2ECC71;">
+                        <p style="font-size: 0.9em; margin: 0; color: #555;"><i>"{p.get('greeting','')}"</i></p>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
             slots = [s for s in st.session_state.get('l_available_slots', []) if s['mentor']==selected_m and s['date']==sel_date]
             if slots:
                 st.markdown("---")
-                w_day_sel = WEEKS[sel_date.weekday()]
-                st.info(f"📍 {slots[0].get('location','-')} | ⏰ {sel_date.strftime('%m/%d')}({w_day_sel}) {slots[0]['start']} ~ {slots[0]['end']}")
-                p_t = generate_time_slots(slots[0]['start'], slots[0]['end'])
                 
-                ct1, ct2 = st.columns(2)
-                ts = ct1.selectbox("시작 시간", p_t, format_func=lambda x: x.strftime("%H:%M"), key="l_ts_t1")
-                te = ct2.selectbox("종료 시간", [t for t in p_t if t > ts] if [t for t in p_t if t > ts] else [ts], format_func=lambda x: x.strftime("%H:%M"), key="l_te_t1")
+                # 🚀 개선 포인트 2: 시간 선택창을 없애고 등록된 시간을 깔끔하게 자동 반영!
+                ts = slots[0]['start']
+                te = slots[0]['end']
+                loc = slots[0].get('location', '-')
+                
+                st.success(f"✅ **자동 배정된 대화 시간:** {ts.strftime('%H:%M')} ~ {te.strftime('%H:%M')} (📍 장소: {loc})")
                 
                 topic = st.text_area("대화 희망 주제 (필수)", key="l_tp_t1")
                 
                 if st.button("🚀 신청하기", type="primary", use_container_width=True, key="l_bt1"):
-                    if not m_n or not topic or not is_company_email(m_e): st.warning("정보를 정확히 입력해 주세요.")
+                    if not m_n or not topic or not is_company_email(m_e): 
+                        st.warning("정보를 정확히 입력해 주세요.")
                     else:
                         with st.status("📡 매칭 처리 중..."):
-                            new_res = {"id": str(uuid.uuid4())[:8], "mentor": selected_m, "mentee_name": m_n, "mentee_position": m_p, "mentee_team": m_t, "mentee_email": m_e, "date": sel_date, "start_time": ts, "end_time": te, "topic": topic, "location": slots[0].get('location',''), "status": "대기중"}
-                            st.session_state.l_reservations.append(new_res); safe_save_leader("reservations", st.session_state.l_reservations)
+                            new_res = {"id": str(uuid.uuid4())[:8], "mentor": selected_m, "mentee_name": m_n, "mentee_position": m_p, "mentee_team": m_t, "mentee_email": m_e, "date": sel_date, "start_time": ts, "end_time": te, "topic": topic, "location": loc, "status": "대기중"}
+                            st.session_state.l_reservations.append(new_res)
+                            safe_save_leader("reservations", st.session_state.l_reservations)
                             
                             slot_to_del = next((s for s in st.session_state.l_available_slots if s['mentor'] == selected_m and s['date'] == sel_date), None)
                             if slot_to_del:
-                                st.session_state.l_available_slots.remove(slot_to_del); safe_save_leader("slots", st.session_state.l_available_slots)
+                                st.session_state.l_available_slots.remove(slot_to_del)
+                                safe_save_leader("slots", st.session_state.l_available_slots)
 
                             m_info = next((m for m in st.session_state.leaders_data if m['name']==selected_m), None)
                             if m_info and m_info.get('email'):
