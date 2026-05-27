@@ -87,12 +87,12 @@ def run_leader_talk():
 
     tab1, tab2, tab3, tab4 = st.tabs(["🙋‍♂️ 대화 신청", "💼 리더 일정 관리", "📋 신청 현황 관리", "👑 관리자 메뉴"])
 
+    # --- [🙋‍♂️ Tab 1: 대화 신청] ---
     with tab1:
         st.subheader("🗓️ 리더와의 대화 신청")
         if st.button("🔄 최신 현황 불러오기", key="l_refresh_1"): fetch_latest_data_leader(force=True); st.rerun()
 
         with st.expander("📢 예약 가능 현황 확인", expanded=True):
-            # ✨ 개선 포인트: 오늘을 포함하여 미래의 일정만 필터링합니다. (과거 일정 숨김)
             today_date = datetime.date.today()
             all_slots = [s for s in st.session_state.get('l_available_slots', []) if s['date'] >= today_date]
             
@@ -109,27 +109,17 @@ def run_leader_talk():
 
         st.markdown("---")
         
-        # UI 배치를 위에서 아래로 흐르는 Tab 순서에 맞춤
-        r1_c1, r1_c2 = st.columns(2)
-        m_n = r1_c1.text_input("신청자 성함", key="l_n_t1")
-        m_t = r1_c2.text_input("팀명", key="l_t_t1")
-
-        r2_c1, r2_c2 = st.columns(2)
-        m_p = r2_c1.text_input("직급", key="l_p_t1")
-        m_e = r2_c2.text_input("사내 이메일", key="l_e_t1", placeholder="example@daehanfeed.co.kr")
-        if m_e and not is_company_email(m_e): st.error("🚫 @daehanfeed.co.kr 전용 이메일을 입력해주세요.")
-
-        r3_c1, r3_c2 = st.columns(2)
-        selected_m = r3_c1.selectbox("리더 선택", leader_names, key="l_s_t1")
-        
-        # ✨ 개선 포인트: 한국식 날짜 포맷 (YYYY/MM/DD) 적용
-        sel_date = r3_c2.date_input("날짜 선택", datetime.date.today() + datetime.timedelta(days=1), key="l_d_t1", format="YYYY/MM/DD")
+        # ✨ 1단계: 즉각적인 화면 변화가 필요한 '선택창'을 먼저 위에 배치합니다. (이때만 한 번 깜빡입니다)
+        st.markdown("#### 1️⃣ 대화할 리더 및 일정 선택")
+        r_sel1, r_sel2 = st.columns(2)
+        selected_m = r_sel1.selectbox("리더 선택", leader_names, key="l_s_t1")
+        sel_date = r_sel2.date_input("날짜 선택", datetime.date.today() + datetime.timedelta(days=1), key="l_d_t1", format="YYYY/MM/DD")
             
         if selected_m != "선택해주세요":
             p = next((m for m in st.session_state.get('leaders_data', []) if m['name'] == selected_m), None)
             if p: 
                 st.markdown(f"""
-                <div style="border: 2px solid #2ECC71; padding: 18px; border-radius: 12px; background-color: #EAFDF1; margin-top: 10px;">
+                <div style="border: 2px solid #2ECC71; padding: 18px; border-radius: 12px; background-color: #EAFDF1; margin-top: 10px; margin-bottom: 20px;">
                     <h4 style="margin-top:0; color: #1E8449;">👑 {p['name']} {p.get('position','')}</h4>
                     <p style="margin-bottom: 8px; font-size: 0.95em;">🏢 소속: {p.get('team','')}<br>🎯 담당/전문분야: {p.get('expertise','')}</p>
                     <div style="background-color: white; padding: 10px; border-radius: 8px; border-left: 4px solid #2ECC71;">
@@ -140,37 +130,47 @@ def run_leader_talk():
 
             slots = [s for s in st.session_state.get('l_available_slots', []) if s['mentor']==selected_m and s['date']==sel_date]
             if slots:
-                st.markdown("---")
-                
-                # 리더가 올려둔 일정을 자동으로 불러와서 매칭 (시간 선택창 생략)
                 ts = slots[0]['start']
                 te = slots[0]['end']
                 loc = slots[0].get('location', '-')
-                
                 st.success(f"✅ **자동 배정된 대화 시간:** {ts.strftime('%H:%M')} ~ {te.strftime('%H:%M')} (📍 장소: {loc})")
                 
-                topic = st.text_area("대화 희망 주제 (필수)", key="l_tp_t1")
-                
-                if st.button("🚀 신청하기", type="primary", use_container_width=True, key="l_bt1"):
-                    if not m_n or not topic or not is_company_email(m_e): 
-                        st.warning("정보를 정확히 입력해 주세요.")
-                    else:
-                        with st.status("📡 매칭 처리 중..."):
-                            new_res = {"id": str(uuid.uuid4())[:8], "mentor": selected_m, "mentee_name": m_n, "mentee_position": m_p, "mentee_team": m_t, "mentee_email": m_e, "date": sel_date, "start_time": ts, "end_time": te, "topic": topic, "location": loc, "status": "대기중"}
-                            st.session_state.l_reservations.append(new_res)
-                            safe_save_leader("reservations", st.session_state.l_reservations)
-                            
-                            slot_to_del = next((s for s in st.session_state.l_available_slots if s['mentor'] == selected_m and s['date'] == sel_date), None)
-                            if slot_to_del:
-                                st.session_state.l_available_slots.remove(slot_to_del)
-                                safe_save_leader("slots", st.session_state.l_available_slots)
+                # ✨ 2단계: 타이핑할 때 화면이 깜빡이지 않도록 st.form(장바구니)으로 단단히 묶어줍니다!
+                st.markdown("#### 2️⃣ 신청자 정보 입력")
+                with st.form(key="apply_form"):
+                    r1_c1, r1_c2 = st.columns(2)
+                    m_n = r1_c1.text_input("신청자 성함")
+                    m_t = r1_c2.text_input("팀명")
 
-                            m_info = next((m for m in st.session_state.leaders_data if m['name']==selected_m), None)
-                            if m_info and m_info.get('email'):
-                                mail_subject = f"[대한사료 리더대화] 새로운 대화 신청이 접수되었습니다."
-                                mail_body = f"안녕하세요, {selected_m} 리더님!\n\n{m_n}님께서 대화를 신청하셨습니다.\n\n- 일시: {sel_date} ({ts.strftime('%H:%M')} ~ {te.strftime('%H:%M')})\n- 주제: {topic}\n\n▶ 시스템 접속: {SYSTEM_URL}"
-                                send_email(m_info['email'], mail_subject, mail_body)
-                        st.balloons(); time.sleep(1); st.rerun()
+                    r2_c1, r2_c2 = st.columns(2)
+                    m_p = r2_c1.text_input("직급")
+                    m_e = r2_c2.text_input("사내 이메일", placeholder="example@daehanfeed.co.kr")
+                    
+                    topic = st.text_area("대화 희망 주제 (필수)")
+                    
+                    # 폼 내부의 제출 버튼 (이 버튼을 누를 때만 서버와 통신합니다)
+                    submit_btn = st.form_submit_button("🚀 신청하기", use_container_width=True)
+                    
+                    if submit_btn:
+                        if not m_n or not topic or not is_company_email(m_e): 
+                            st.warning("⚠️ 정보를 정확히 입력해 주세요. (이메일은 @daehanfeed.co.kr 필수)")
+                        else:
+                            with st.status("📡 매칭 처리 중..."):
+                                new_res = {"id": str(uuid.uuid4())[:8], "mentor": selected_m, "mentee_name": m_n, "mentee_position": m_p, "mentee_team": m_t, "mentee_email": m_e, "date": sel_date, "start_time": ts, "end_time": te, "topic": topic, "location": loc, "status": "대기중"}
+                                st.session_state.l_reservations.append(new_res)
+                                safe_save_leader("reservations", st.session_state.l_reservations)
+                                
+                                slot_to_del = next((s for s in st.session_state.l_available_slots if s['mentor'] == selected_m and s['date'] == sel_date), None)
+                                if slot_to_del:
+                                    st.session_state.l_available_slots.remove(slot_to_del)
+                                    safe_save_leader("slots", st.session_state.l_available_slots)
+
+                                m_info = next((m for m in st.session_state.leaders_data if m['name']==selected_m), None)
+                                if m_info and m_info.get('email'):
+                                    mail_subject = f"[대한사료 리더대화] 새로운 대화 신청이 접수되었습니다."
+                                    mail_body = f"안녕하세요, {selected_m} 리더님!\n\n{m_n}님께서 대화를 신청하셨습니다.\n\n- 일시: {sel_date} ({ts.strftime('%H:%M')} ~ {te.strftime('%H:%M')})\n- 주제: {topic}\n\n▶ 시스템 접속: {SYSTEM_URL}"
+                                    send_email(m_info['email'], mail_subject, mail_body)
+                            st.balloons(); time.sleep(1); st.rerun()
 
     with tab2:
         st.subheader("💼 나의 일정 관리")
