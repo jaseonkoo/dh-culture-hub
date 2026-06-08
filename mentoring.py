@@ -5,6 +5,8 @@ def run_mentoring():
         <style>
         .stTextInput, .stSelectbox, .stDateInput, .stTextArea, .stTimeInput { margin-bottom: 12px !important; }
         .status-item { padding: 5px 10px; border-bottom: 1px solid #f0f2f6; line-height: 1.5; }
+        /* 이중 탭 디자인을 조금 더 구분감 있게 만들어주는 CSS */
+        div[data-testid="stTabs"] div[data-testid="stTabs"] button { font-size: 0.9em; padding-top: 5px; padding-bottom: 5px; }
         </style>
     """, unsafe_allow_html=True)
 
@@ -86,10 +88,13 @@ def run_mentoring():
 
     mentor_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('mentors_data', [])]
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🙋‍♂️ 멘티 예약 신청", "💼 멘토 일정 관리", "📋 멘토 예약 관리", "🔑 비밀번호 변경", "👑 관리자 메뉴"])
+    # 🚀 1단계: 역할별 메인 메뉴 (Main Tabs)
+    main_tab_mentee, main_tab_mentor, main_tab_admin = st.tabs(["🙋‍♂️ 멘티 공간", "💼 멘토 공간", "👑 관리자 메뉴"])
 
-    # --- [🙋‍♂️ Tab 1: 멘티 예약 신청] ---
-    with tab1:
+    # =========================================================
+    # 🙋‍♂️ [메인 탭 1: 멘티 공간]
+    # =========================================================
+    with main_tab_mentee:
         st.subheader("🗓️ 멘토링 예약 신청")
         if st.button("🔄 최신 현황 불러오기"): fetch_latest_data(force=True); st.rerun()
 
@@ -155,12 +160,11 @@ def run_mentoring():
                         if not m_n or not topic or not is_company_email(m_e): 
                             st.warning("⚠️ 정보를 정확히 입력해 주세요. (이메일은 @daehanfeed.co.kr 필수)")
                         else:
-                            with st.status("📡 매칭 처리 중...") as status:
+                            with st.status("📡 매칭 처리 중..."):
                                 new_res = {"id": str(uuid.uuid4())[:8], "mentor": selected_m, "mentee_name": m_n, "mentee_position": m_p, "mentee_team": m_t, "mentee_email": m_e, "date": sel_date, "start_time": ts, "end_time": te, "topic": topic, "location": loc, "status": "대기중"}
                                 st.session_state.reservations.append(new_res)
                                 save1 = safe_save("reservations", st.session_state.reservations)
                                 
-                                # ✨ 오타 수정 완료!
                                 slot_to_del = next((s for s in st.session_state.available_slots if s['mentor'] == selected_m and s['date'] == sel_date), None)
                                 save2 = True
                                 if slot_to_del:
@@ -188,159 +192,168 @@ def run_mentoring():
                                     status.update(label="처리 실패", state="error")
                                     st.error("⚠️ 데이터 저장에 실패하여 신청이 취소되었습니다.")
 
-    # --- [💼 Tab 2: 멘토 일정 관리] ---
-    with tab2:
-        st.subheader("💼 나의 멘토링 일정 관리")
-        m_log2 = st.selectbox("본인 성함 선택", mentor_names, key="m_log_t2", on_change=reset_pw_t2)
-        if m_log2 != "선택해주세요":
-            minfo = next((m for m in st.session_state.get('mentors_data', []) if m['name']==m_log2), None)
-            if minfo and st.text_input("비밀번호 입력", type="password", key="m_pw_t2") == str(minfo['pw']):
-                c2_1, c2_2, c2_3, c2_4 = st.columns(4)
-                dv, sv, ev, lv = c2_1.date_input("날짜", key="sd_t2"), c2_2.time_input("시작", datetime.time(0,0), key="ss_t2"), c2_3.time_input("종료", datetime.time(0,0), key="se_t2"), c2_4.text_input("장소", key="sl_t2")
-                
-                if st.button("🗓️ 일정 등록하기", type="primary", use_container_width=True, key="sb_t2"):
-                    is_duplicate = False
-                    for r in st.session_state.get('reservations', []):
-                        if r['mentor'] == m_log2 and r['date'] == dv:
-                            if not (ev <= r['start_time'] or sv >= r['end_time']): is_duplicate = True; break
-                    if not is_duplicate:
-                        for s in st.session_state.get('available_slots', []):
-                            if s['mentor'] == m_log2 and s['date'] == dv:
-                                if not (ev <= s['start'] or sv >= s['end']): is_duplicate = True; break
+    # =========================================================
+    # 💼 [메인 탭 2: 멘토 공간]
+    # =========================================================
+    with main_tab_mentor:
+        # 🚀 2단계: 멘토 메인 메뉴 안의 이중 탭 (서브 메뉴)
+        sub_tab_schedule, sub_tab_manage, sub_tab_pw = st.tabs(["🗓️ 일정 등록 및 관리", "📋 신청 현황 및 예약 관리", "🔑 비밀번호 변경"])
+        
+        # --- [서브 탭 1: 일정 관리] ---
+        with sub_tab_schedule:
+            st.subheader("💼 나의 멘토링 일정 관리")
+            m_log2 = st.selectbox("본인 성함 선택", mentor_names, key="m_log_t2", on_change=reset_pw_t2)
+            if m_log2 != "선택해주세요":
+                minfo = next((m for m in st.session_state.get('mentors_data', []) if m['name']==m_log2), None)
+                if minfo and st.text_input("비밀번호 입력", type="password", key="m_pw_t2") == str(minfo['pw']):
+                    c2_1, c2_2, c2_3, c2_4 = st.columns(4)
+                    dv, sv, ev, lv = c2_1.date_input("날짜", key="sd_t2"), c2_2.time_input("시작", datetime.time(0,0), key="ss_t2"), c2_3.time_input("종료", datetime.time(0,0), key="se_t2"), c2_4.text_input("장소", key="sl_t2")
                     
-                    if is_duplicate: st.error("🚫 중복된 시간이 존재합니다.")
-                    elif sv >= ev: st.error("🚫 시간 설정 오류")
-                    else:
-                        with st.status("📡 저장 중..."):
-                            st.session_state.available_slots.append({"mentor": m_log2, "date": dv, "start": sv, "end": ev, "location": lv})
+                    if st.button("🗓️ 일정 등록하기", type="primary", use_container_width=True, key="sb_t2"):
+                        is_duplicate = False
+                        for r in st.session_state.get('reservations', []):
+                            if r['mentor'] == m_log2 and r['date'] == dv:
+                                if not (ev <= r['start_time'] or sv >= r['end_time']): is_duplicate = True; break
+                        if not is_duplicate:
+                            for s in st.session_state.get('available_slots', []):
+                                if s['mentor'] == m_log2 and s['date'] == dv:
+                                    if not (ev <= s['start'] or sv >= s['end']): is_duplicate = True; break
+                        
+                        if is_duplicate: st.error("🚫 중복된 시간이 존재합니다.")
+                        elif sv >= ev: st.error("🚫 시간 설정 오류")
+                        else:
+                            with st.status("📡 저장 중..."):
+                                st.session_state.available_slots.append({"mentor": m_log2, "date": dv, "start": sv, "end": ev, "location": lv})
+                                if safe_save("slots", st.session_state.available_slots):
+                                    st.snow(); st.success("등록 완료!")
+                                    time.sleep(1.5)
+                                    fetch_latest_data(force=True)
+                                    st.rerun()
+                
+                    st.divider(); st.markdown(f"#### 🗑️ {m_log2} 멘토님의 등록 일정")
+                    my_slots = [x for x in st.session_state.get('available_slots', []) if x['mentor'] == m_log2]
+                    for i, s in enumerate(my_slots):
+                        col_a, col_b = st.columns([4, 1]); w_s = WEEKS[s['date'].weekday()]
+                        col_a.write(f"📅 {s['date']}({w_s}) | ⏰ {s['start']}~{s['end']} | 📍 {s.get('location','-')}")
+                        if col_b.button("삭제", key=f"del_s_{i}"):
+                            st.session_state.available_slots.remove(s)
                             if safe_save("slots", st.session_state.available_slots):
-                                st.snow(); st.success("등록 완료!")
-                                time.sleep(1.5)
                                 fetch_latest_data(force=True)
                                 st.rerun()
-            
-                st.divider(); st.markdown(f"#### 🗑️ {m_log2} 멘토님의 등록 일정")
-                my_slots = [x for x in st.session_state.get('available_slots', []) if x['mentor'] == m_log2]
-                for i, s in enumerate(my_slots):
-                    col_a, col_b = st.columns([4, 1]); w_s = WEEKS[s['date'].weekday()]
-                    col_a.write(f"📅 {s['date']}({w_s}) | ⏰ {s['start']}~{s['end']} | 📍 {s.get('location','-')}")
-                    if col_b.button("삭제", key=f"del_s_{i}"):
-                        st.session_state.available_slots.remove(s)
-                        if safe_save("slots", st.session_state.available_slots):
-                            fetch_latest_data(force=True)
-                            st.rerun()
 
-    # --- [📋 Tab 3: 멘토 예약 관리] ---
-    with tab3:
-        st.subheader("📋 멘티 신청 현황 및 후기 관리")
-        m_sel3 = st.selectbox("본인 성함 선택", mentor_names, key="m_sel_t3", on_change=reset_pw_t3)
-        if m_sel3 != "선택해주세요":
-            minfo3 = next((m for m in st.session_state.get('mentors_data', []) if m['name']==m_sel3), None)
-            if minfo3 and st.text_input("비번 확인", type="password", key="m_pw_t3") == str(minfo3['pw']):
-                my_res = [x for x in st.session_state.get('reservations', []) if x['mentor']==m_sel3]
-                my_res.sort(key=lambda x: 0 if x['status'] == "대기중" else (1 if x['status'] in ["승인됨", "완료(후기작성됨)"] else 2))
-                
-                for r in my_res:
-                    with st.expander(f"[{r['status']}] {r['date']}({WEEKS[r['date'].weekday()]}) | {r['mentee_name']}님"):
-                        col_r1, col_r2 = st.columns(2)
-                        with col_r1:
-                            st.write(f"- 성함: {r['mentee_name']} ({r.get('mentee_position','-')})\n- 팀명: {r.get('mentee_team','-')}\n- 이메일: {r.get('mentee_email','-')}")
-                        with col_r2:
-                            st.write(f"- 시간: {r['start_time']} ~ {r['end_time']}\n- 주제: {r['topic']}")
-                        
-                        if r['status'] == "대기중":
-                            b1, b2 = st.columns(2)
-                            if b1.button("✅ 승인", key=f"ok_{r['id']}", use_container_width=True):
-                                r['status']="승인됨"
-                                if safe_save("reservations", st.session_state.reservations):
-                                    if r.get('mentee_email'):
-                                        body = f"안녕하세요, {r['mentee_name']}님!\n\n신청하신 멘토링 예약이 승인되었습니다.\n\n- 일시: {r['date']} ({r['start_time']} ~ {r['end_time']})\n- 멘토: {m_sel3} 멘토님\n\n감사합니다."
-                                        send_email(r['mentee_email'], "[대한사료 멘토링] 신청하신 예약이 승인되었습니다!", body)
-                                    fetch_latest_data(force=True)
-                                    st.rerun()
+        # --- [서브 탭 2: 예약 관리 및 후기] ---
+        with sub_tab_manage:
+            st.subheader("📋 멘티 신청 현황 및 후기 관리")
+            m_sel3 = st.selectbox("본인 성함 선택", mentor_names, key="m_sel_t3", on_change=reset_pw_t3)
+            if m_sel3 != "선택해주세요":
+                minfo3 = next((m for m in st.session_state.get('mentors_data', []) if m['name']==m_sel3), None)
+                if minfo3 and st.text_input("비번 확인", type="password", key="m_pw_t3") == str(minfo3['pw']):
+                    my_res = [x for x in st.session_state.get('reservations', []) if x['mentor']==m_sel3]
+                    my_res.sort(key=lambda x: 0 if x['status'] == "대기중" else (1 if x['status'] in ["승인됨", "완료(후기작성됨)"] else 2))
+                    
+                    for r in my_res:
+                        with st.expander(f"[{r['status']}] {r['date']}({WEEKS[r['date'].weekday()]}) | {r['mentee_name']}님"):
+                            col_r1, col_r2 = st.columns(2)
+                            with col_r1:
+                                st.write(f"- 성함: {r['mentee_name']} ({r.get('mentee_position','-')})\n- 팀명: {r.get('mentee_team','-')}\n- 이메일: {r.get('mentee_email','-')}")
+                            with col_r2:
+                                st.write(f"- 시간: {r['start_time']} ~ {r['end_time']}\n- 주제: {r['topic']}")
                             
-                            if b2.button("❌ 거절", key=f"no_{r['id']}", use_container_width=True):
-                                r['status']="거절됨"
-                                if safe_save("reservations", st.session_state.reservations):
-                                    if r.get('mentee_email'):
-                                        send_email(r['mentee_email'], "[대한사료 멘토링] 예약 반려 안내", f"아쉽게도 {m_sel3} 멘토님이 예약을 반려하셨습니다.")
-                                    st.session_state.available_slots.append({
-                                        "mentor": r['mentor'], "date": r['date'], "start": r['start_time'], "end": r['end_time'], "location": r.get('location', '')
-                                    })
-                                    safe_save("slots", st.session_state.available_slots)
-                                    fetch_latest_data(force=True)
+                            if r['status'] == "대기중":
+                                b1, b2 = st.columns(2)
+                                if b1.button("✅ 승인", key=f"ok_{r['id']}", use_container_width=True):
+                                    r['status']="승인됨"
+                                    if safe_save("reservations", st.session_state.reservations):
+                                        if r.get('mentee_email'):
+                                            body = f"안녕하세요, {r['mentee_name']}님!\n\n신청하신 멘토링 예약이 승인되었습니다.\n\n- 일시: {r['date']} ({r['start_time']} ~ {r['end_time']})\n- 멘토: {m_sel3} 멘토님\n\n감사합니다."
+                                            send_email(r['mentee_email'], "[대한사료 멘토링] 신청하신 예약이 승인되었습니다!", body)
+                                        fetch_latest_data(force=True)
+                                        st.rerun()
+                                
+                                if b2.button("❌ 거절", key=f"no_{r['id']}", use_container_width=True):
+                                    r['status']="거절됨"
+                                    if safe_save("reservations", st.session_state.reservations):
+                                        if r.get('mentee_email'):
+                                            send_email(r['mentee_email'], "[대한사료 멘토링] 예약 반려 안내", f"아쉽게도 {m_sel3} 멘토님이 예약을 반려하셨습니다.")
+                                        st.session_state.available_slots.append({
+                                            "mentor": r['mentor'], "date": r['date'], "start": r['start_time'], "end": r['end_time'], "location": r.get('location', '')
+                                        })
+                                        safe_save("slots", st.session_state.available_slots)
+                                        fetch_latest_data(force=True)
+                                        st.rerun()
+
+                            elif r['status'] in ["승인됨", "완료(후기작성됨)"]:
+                                st.divider()
+                                if r.get('review_text'):
+                                    st.success(f"**📝 작성된 멘토링 후기** (진행일: {r.get('review_date', '-')})")
+                                    st.write(f"- **참석자**: {r.get('review_mentor', '-')} 멘토 & {r.get('review_mentee', '-')} 멘티")
+                                    st.info(r['review_text'])
+                                    if st.button("✏️ 후기 수정하기", key=f"edit_rev_{r['id']}"):
+                                        r['status'] = "승인됨" 
+                                        r['review_text'] = ""
+                                        if safe_save("reservations", st.session_state.reservations): st.rerun()
+                                else:
+                                    with st.form(key=f"review_form_{r['id']}"):
+                                        st.markdown("#### 📝 멘토링 진행 후기 작성")
+                                        c1, c2, c3 = st.columns(3)
+                                        rev_date = c1.date_input("실제 진행 일자", value=r['date'], key=f"rd_{r['id']}")
+                                        rev_mentor = c2.text_input("멘토 이름", value=r['mentor'], key=f"rm_{r['id']}")
+                                        rev_mentee = c3.text_input("멘티 이름", value=r['mentee_name'], key=f"rme_{r['id']}")
+                                        rev_text = st.text_area("후기 내용", placeholder="멘토링에서 나눈 주요 내용, 피드백, 느낀 점을 자유롭게 남겨주세요.", key=f"rt_{r['id']}")
+                                        
+                                        if st.form_submit_button("💾 후기 저장하기", use_container_width=True):
+                                            if rev_text.strip() == "":
+                                                st.error("후기 내용을 입력해 주세요!")
+                                            else:
+                                                r['review_date'] = str(rev_date); r['review_mentor'] = rev_mentor
+                                                r['review_mentee'] = rev_mentee; r['review_text'] = rev_text
+                                                r['status'] = "완료(후기작성됨)" 
+                                                if safe_save("reservations", st.session_state.reservations):
+                                                    st.success("후기가 성공적으로 저장되었습니다!")
+                                                    time.sleep(1.5)
+                                                    st.rerun()
+
+        # --- [서브 탭 3: 비밀번호 변경] ---
+        with sub_tab_pw:
+            st.subheader("🔑 멘토 비밀번호 변경")
+            st.info("💡 안전한 플랫폼 이용을 위해 초기 지정된 암호는 본인만 아는 비밀번호로 수시 변경하여 관리해 주세요.")
+            
+            with st.form(key="change_password_form_mentoring"):
+                c1, c2 = st.columns(2)
+                cp_name = c1.selectbox("본인 성함 선택", mentor_names, key="cp_name_sel_m")
+                current_pw_input = c1.text_input("현재 비밀번호 입력", type="password")
+                
+                new_pw_input = c2.text_input("새로운 비밀번호 입력", type="password")
+                new_pw_confirm = c2.text_input("새로운 비밀번호 확인", type="password")
+                
+                submit_cp = st.form_submit_button("🔒 비밀번호 변경하기", use_container_width=True)
+                
+                if submit_cp:
+                    if cp_name == "선택해주세요" or not current_pw_input or not new_pw_input or not new_pw_confirm:
+                        st.warning("모든 항목을 정확하게 입력해 주세요.")
+                    else:
+                        cp_info = next((m for m in st.session_state.mentors_data if m['name'] == cp_name), None)
+                        if not cp_info:
+                            st.error("해당 이름의 멘토를 찾을 수 없습니다.")
+                        elif str(cp_info['pw']) != current_pw_input:
+                            st.error("🚫 현재 비밀번호가 일치하지 않습니다. 다시 확인해 주세요.")
+                        elif new_pw_input != new_pw_confirm:
+                            st.error("🚫 새로운 비밀번호와 확인용 비밀번호가 일치하지 않습니다.")
+                        else:
+                            with st.status("📡 비밀번호 변경 내용 동기화 중..."):
+                                for idx, m in enumerate(st.session_state.mentors_data):
+                                    if m['name'] == cp_name:
+                                        st.session_state.mentors_data[idx]['pw'] = new_pw_input
+                                        break
+                                if safe_save("mentors", st.session_state.mentors_data):
+                                    st.success("✅ 비밀번호가 안전하게 변경되었습니다!")
+                                    time.sleep(1.5)
                                     st.rerun()
 
-                        elif r['status'] in ["승인됨", "완료(후기작성됨)"]:
-                            st.divider()
-                            if r.get('review_text'):
-                                st.success(f"**📝 작성된 멘토링 후기** (진행일: {r.get('review_date', '-')})")
-                                st.write(f"- **참석자**: {r.get('review_mentor', '-')} 멘토 & {r.get('review_mentee', '-')} 멘티")
-                                st.info(r['review_text'])
-                                if st.button("✏️ 후기 수정하기", key=f"edit_rev_{r['id']}"):
-                                    r['status'] = "승인됨" 
-                                    r['review_text'] = ""
-                                    if safe_save("reservations", st.session_state.reservations): st.rerun()
-                            else:
-                                with st.form(key=f"review_form_{r['id']}"):
-                                    st.markdown("#### 📝 멘토링 진행 후기 작성")
-                                    c1, c2, c3 = st.columns(3)
-                                    rev_date = c1.date_input("실제 진행 일자", value=r['date'], key=f"rd_{r['id']}")
-                                    rev_mentor = c2.text_input("멘토 이름", value=r['mentor'], key=f"rm_{r['id']}")
-                                    rev_mentee = c3.text_input("멘티 이름", value=r['mentee_name'], key=f"rme_{r['id']}")
-                                    rev_text = st.text_area("후기 내용", placeholder="멘토링에서 나눈 주요 내용, 피드백, 느낀 점을 자유롭게 남겨주세요.", key=f"rt_{r['id']}")
-                                    
-                                    if st.form_submit_button("💾 후기 저장하기", use_container_width=True):
-                                        if rev_text.strip() == "":
-                                            st.error("후기 내용을 입력해 주세요!")
-                                        else:
-                                            r['review_date'] = str(rev_date); r['review_mentor'] = rev_mentor
-                                            r['review_mentee'] = rev_mentee; r['review_text'] = rev_text
-                                            r['status'] = "완료(후기작성됨)" 
-                                            if safe_save("reservations", st.session_state.reservations):
-                                                st.success("후기가 성공적으로 저장되었습니다!")
-                                                time.sleep(1.5)
-                                                st.rerun()
-
-    # --- [🔑 Tab 4: 비밀번호 변경] ---
-    with tab4:
-        st.subheader("🔑 멘토 비밀번호 변경")
-        st.info("💡 안전한 플랫폼 이용을 위해 초기 지정된 암호는 본인만 아는 비밀번호로 수시 변경하여 관리해 주세요.")
-        
-        with st.form(key="change_password_form_mentoring"):
-            c1, c2 = st.columns(2)
-            cp_name = c1.selectbox("본인 성함 선택", mentor_names, key="cp_name_sel_m")
-            current_pw_input = c1.text_input("현재 비밀번호 입력", type="password")
-            
-            new_pw_input = c2.text_input("새로운 비밀번호 입력", type="password")
-            new_pw_confirm = c2.text_input("새로운 비밀번호 확인", type="password")
-            
-            submit_cp = st.form_submit_button("🔒 비밀번호 변경하기", use_container_width=True)
-            
-            if submit_cp:
-                if cp_name == "선택해주세요" or not current_pw_input or not new_pw_input or not new_pw_confirm:
-                    st.warning("모든 항목을 정확하게 입력해 주세요.")
-                else:
-                    cp_info = next((m for m in st.session_state.mentors_data if m['name'] == cp_name), None)
-                    if not cp_info:
-                        st.error("해당 이름의 멘토를 찾을 수 없습니다.")
-                    elif str(cp_info['pw']) != current_pw_input:
-                        st.error("🚫 현재 비밀번호가 일치하지 않습니다. 다시 확인해 주세요.")
-                    elif new_pw_input != new_pw_confirm:
-                        st.error("🚫 새로운 비밀번호와 확인용 비밀번호가 일치하지 않습니다.")
-                    else:
-                        with st.status("📡 비밀번호 변경 내용 동기화 중..."):
-                            for idx, m in enumerate(st.session_state.mentors_data):
-                                if m['name'] == cp_name:
-                                    st.session_state.mentors_data[idx]['pw'] = new_pw_input
-                                    break
-                            if safe_save("mentors", st.session_state.mentors_data):
-                                st.success("✅ 비밀번호가 안전하게 변경되었습니다!")
-                                time.sleep(1.5)
-                                st.rerun()
-
-    # --- [👑 Tab 5: 관리자 메뉴] ---
-    with tab5:
+    # =========================================================
+    # 👑 [메인 탭 3: 관리자 공간]
+    # =========================================================
+    with main_tab_admin:
         st.subheader("👑 인사총무팀 전용 관리 시스템")
         if not st.session_state.admin_logged_in:
             aid, apw = st.text_input("ID", key="ad_id"), st.text_input("PW", type="password", key="ad_pw")
