@@ -86,3 +86,4 @@ elif st.session_state.page == "class":
 elif st.session_state.page == "typing":
     if st.button("⬅️ 메인으로"): go_to("home")
     typing_game.run_typing_game()
+
