@@ -86,7 +86,8 @@ def run_mentoring():
 
     mentor_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('mentors_data', [])]
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🙋‍♂️ 멘티 예약 신청", "💼 멘토 일정 관리", "📋 멘토 예약 관리", "👑 관리자 메뉴"])
+    # 📊 🔑 네 번째 칸에 비밀번호 변경 탭을 추가했습니다.
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🙋‍♂️ 멘티 예약 신청", "💼 멘토 일정 관리", "📋 멘토 예약 관리", "🔑 비밀번호 변경", "👑 관리자 메뉴"])
 
     # --- [🙋‍♂️ Tab 1: 멘티 예약 신청] ---
     with tab1:
@@ -94,7 +95,6 @@ def run_mentoring():
         if st.button("🔄 최신 현황 불러오기"): fetch_latest_data(force=True); st.rerun()
 
         with st.expander("📢 예약 가능 현황 확인", expanded=True):
-            # ✨ 과거 일정 숨김 처리
             today_date = datetime.date.today()
             all_slots = [s for s in st.session_state.get('available_slots', []) if s['date'] >= today_date]
             
@@ -111,11 +111,9 @@ def run_mentoring():
 
         st.markdown("---")
         
-        # ✨ 즉각적인 화면 변화가 필요한 '선택창'을 먼저 위에 배치합니다.
         st.markdown("#### 1️⃣ 멘토 및 일정 선택")
         r_sel1, r_sel2 = st.columns(2)
         selected_m = r_sel1.selectbox("멘토 선택", mentor_names, key="m_s_t1")
-        # 한국식 날짜 포맷 (YYYY/MM/DD) 적용
         sel_date = r_sel2.date_input("날짜 선택", datetime.date.today() + datetime.timedelta(days=1), key="d_s_t1", format="YYYY/MM/DD")
 
         if selected_m != "선택해주세요":
@@ -134,14 +132,12 @@ def run_mentoring():
             slots = [s for s in st.session_state.get('available_slots', []) if s['mentor']==selected_m and s['date']==sel_date]
             if slots:
                 st.markdown("---")
-                # ✨ 시간 선택창을 없애고 등록된 시간을 자동으로 세팅합니다.
                 ts = slots[0]['start']
                 te = slots[0]['end']
                 loc = slots[0].get('location', '-')
                 
                 st.success(f"✅ **자동 배정된 멘토링 시간:** {ts.strftime('%H:%M')} ~ {te.strftime('%H:%M')} (📍 장소: {loc})")
 
-                # ✨ 폼(장바구니)으로 묶어 깜빡임을 방지하고 Tab 순서를 좌/우로 자연스럽게 정렬합니다.
                 st.markdown("#### 2️⃣ 신청자 정보 입력")
                 with st.form(key="apply_form_mentoring"):
                     r1_c1, r1_c2 = st.columns(2)
@@ -165,7 +161,7 @@ def run_mentoring():
                                 st.session_state.reservations.append(new_res)
                                 save1 = safe_save("reservations", st.session_state.reservations)
                                 
-                                slot_to_del = next((s for s in st.session_state.available_slots if s['mentor'] == selected_m and s['date'] == sel_date), None)
+                                slot_to_del = next((s for s in st.session_state.available_slots if s['mentor'] == selected_m bits and s['date'] == sel_date), None)
                                 save2 = True
                                 if slot_to_del:
                                     st.session_state.available_slots.remove(slot_to_del)
@@ -209,7 +205,7 @@ def run_mentoring():
                             if not (ev <= r['start_time'] or sv >= r['end_time']): is_duplicate = True; break
                     if not is_duplicate:
                         for s in st.session_state.get('available_slots', []):
-                            if s['mentor'] == m_log2 and s['date'] == dv:
+                            if s['mentor'] == m_log2 && s['date'] == dv:
                                 if not (ev <= s['start'] or sv >= s['end']): is_duplicate = True; break
                     
                     if is_duplicate: st.error("🚫 중복된 시간이 존재합니다.")
@@ -306,8 +302,45 @@ def run_mentoring():
                                                 time.sleep(1.5)
                                                 st.rerun()
 
-    # --- [👑 Tab 4: 관리자 메뉴] ---
+    # --- [🔑 Tab 4: 비밀번호 변경] ---
     with tab4:
+        st.subheader("🔑 멘토 비밀번호 변경")
+        st.info("💡 안전한 플랫폼 이용을 위해 초기 지정된 암호는 본인만 아는 비밀번호로 수시 변경하여 관리해 주세요.")
+        
+        with st.form(key="change_password_form_mentoring"):
+            c1, c2 = st.columns(2)
+            cp_name = c1.selectbox("본인 성함 선택", mentor_names, key="cp_name_sel_m")
+            current_pw_input = c1.text_input("현재 비밀번호 입력", type="password")
+            
+            new_pw_input = c2.text_input("새로운 비밀번호 입력", type="password")
+            new_pw_confirm = c2.text_input("새로운 비밀번호 확인", type="password")
+            
+            submit_cp = st.form_submit_button("🔒 비밀번호 변경하기", use_container_width=True)
+            
+            if submit_cp:
+                if cp_name == "선택해주세요" or not current_pw_input or not new_pw_input or not new_pw_confirm:
+                    st.warning("모든 항목을 정확하게 입력해 주세요.")
+                else:
+                    cp_info = next((m for m in st.session_state.mentors_data if m['name'] == cp_name), None)
+                    if not cp_info:
+                        st.error("해당 이름의 멘토를 찾을 수 없습니다.")
+                    elif str(cp_info['pw']) != current_pw_input:
+                        st.error("🚫 현재 비밀번호가 일치하지 않습니다. 다시 확인해 주세요.")
+                    elif new_pw_input != new_pw_confirm:
+                        st.error("🚫 새로운 비밀번호와 확인용 비밀번호가 일치하지 않습니다.")
+                    else:
+                        with st.status("📡 비밀번호 변경 내용 동기화 중..."):
+                            for idx, m in enumerate(st.session_state.mentors_data):
+                                if m['name'] == cp_name:
+                                    st.session_state.mentors_data[idx]['pw'] = new_pw_input
+                                    break
+                            if safe_save("mentors", st.session_state.mentors_data):
+                                st.success("✅ 비밀번호가 안전하게 변경되었습니다!")
+                                time.sleep(1.5)
+                                st.rerun()
+
+    # --- [👑 Tab 5: 관리자 메뉴] ---
+    with tab5:
         st.subheader("👑 인사총무팀 전용 관리 시스템")
         if not st.session_state.admin_logged_in:
             aid, apw = st.text_input("ID", key="ad_id"), st.text_input("PW", type="password", key="ad_pw")
