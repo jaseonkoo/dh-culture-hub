@@ -86,7 +86,6 @@ def run_mentoring():
 
     mentor_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('mentors_data', [])]
 
-    # 📊 🔑 네 번째 칸에 비밀번호 변경 탭을 추가했습니다.
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["🙋‍♂️ 멘티 예약 신청", "💼 멘토 일정 관리", "📋 멘토 예약 관리", "🔑 비밀번호 변경", "👑 관리자 메뉴"])
 
     # --- [🙋‍♂️ Tab 1: 멘티 예약 신청] ---
@@ -161,7 +160,8 @@ def run_mentoring():
                                 st.session_state.reservations.append(new_res)
                                 save1 = safe_save("reservations", st.session_state.reservations)
                                 
-                                slot_to_del = next((s for s in st.session_state.available_slots if s['mentor'] == selected_m bits and s['date'] == sel_date), None)
+                                # ✨ 오타 수정 완료!
+                                slot_to_del = next((s for s in st.session_state.available_slots if s['mentor'] == selected_m and s['date'] == sel_date), None)
                                 save2 = True
                                 if slot_to_del:
                                     st.session_state.available_slots.remove(slot_to_del)
@@ -205,7 +205,7 @@ def run_mentoring():
                             if not (ev <= r['start_time'] or sv >= r['end_time']): is_duplicate = True; break
                     if not is_duplicate:
                         for s in st.session_state.get('available_slots', []):
-                            if s['mentor'] == m_log2 && s['date'] == dv:
+                            if s['mentor'] == m_log2 and s['date'] == dv:
                                 if not (ev <= s['start'] or sv >= s['end']): is_duplicate = True; break
                     
                     if is_duplicate: st.error("🚫 중복된 시간이 존재합니다.")
