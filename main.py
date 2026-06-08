@@ -31,13 +31,17 @@ def update_visitor_count():
     current_ip = get_client_ip()
     
     if os.path.exists(ip_file):
-        with open(ip_file, "r") as f:
+        with open(ip_file, "r") as f: 
             visited_ips = set(f.read().splitlines())
-    else:
+    else: 
         visited_ips = set()
-        with open(ip_file, "r") as f: visited_ips = set(f.read().splitlines())
-    else: visited_ips = set()
-
+        
+    if current_ip != "Unknown" and current_ip not in visited_ips:
+        visited_ips.add(current_ip)
+        with open(ip_file, "w") as f: 
+            f.write("\n".join(visited_ips))
+            
+    return len(visited_ips)
     if current_ip != "Unknown" and current_ip not in visited_ips:
         visited_ips.add(current_ip)
         with open(ip_file, "w") as f:
