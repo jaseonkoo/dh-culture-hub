@@ -160,7 +160,7 @@ def run_mentoring():
                         if not m_n or not topic or not is_company_email(m_e): 
                             st.warning("⚠️ 정보를 정확히 입력해 주세요. (이메일은 @daehanfeed.co.kr 필수)")
                         else:
-                            with st.status("📡 매칭 처리 중..."):
+                            with st.status("📡 매칭 처리 중...") as status:
                                 new_res = {"id": str(uuid.uuid4())[:8], "mentor": selected_m, "mentee_name": m_n, "mentee_position": m_p, "mentee_team": m_t, "mentee_email": m_e, "date": sel_date, "start_time": ts, "end_time": te, "topic": topic, "location": loc, "status": "대기중"}
                                 st.session_state.reservations.append(new_res)
                                 save1 = safe_save("reservations", st.session_state.reservations)
@@ -216,6 +216,7 @@ def run_mentoring():
                                 if not (ev <= r['start_time'] or sv >= r['end_time']): is_duplicate = True; break
                         if not is_duplicate:
                             for s in st.session_state.get('available_slots', []):
+                                # ✨ 수정 포인트: && 를 and 로 변경했습니다!
                                 if s['mentor'] == m_log2 and s['date'] == dv:
                                     if not (ev <= s['start'] or sv >= s['end']): is_duplicate = True; break
                         
