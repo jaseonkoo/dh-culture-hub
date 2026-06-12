@@ -144,13 +144,15 @@ def run_class():
                                 if safe_save_class("applications", st.session_state.c_reservations):
                                     st.success(f"'{a['class_title']}' 신청이 취소되었습니다."); time.sleep(1.5); st.rerun()
 
+    # --- [👨‍🏫 Tab 2: 강사 전용 공간] ---
     with tab2:
         st.subheader("🔒 강사 전용 클래스 관리")
         c_log = st.selectbox("본인 성함 선택", instructor_names, key="c_log_t2", on_change=reset_pw_c2)
         if c_log != "선택해주세요":
             minfo = next((m for m in st.session_state.get('instructors_data', []) if m['name']==c_log), None)
             if minfo and st.text_input("비밀번호 입력", type="password", key="c_pw_t2") == str(minfo['pw']):
-                mode = st.radio("작업 선택", ["신규 클래스 오픈하기", "내 클래스 신청자 명단 보기"], horizontal=True)
+                # ✨ 작업 선택 메뉴에 '내 클래스 정보 수정하기'를 새로 추가했습니다.
+                mode = st.radio("작업 선택", ["신규 클래스 오픈하기", "내 클래스 정보 수정하기", "내 클래스 신청자 명단 보기"], horizontal=True)
                 
                 if mode == "신규 클래스 오픈하기":
                     with st.form("new_class_form"):
@@ -173,6 +175,67 @@ def run_class():
                                     st.session_state.classes_data.append(new_class)
                                     safe_save_class("classes", st.session_state.classes_data)
                                 st.balloons(); st.success("오픈되었습니다!"); time.sleep(1.5); st.rerun()
+
+                # ✨ 새로 추가된 [내 클래스 정보 수정하기] 로직
+                elif mode == "내 클래스 정보 수정하기":
+                    my_classes = [c for c in st.session_state.get('classes_data', []) if c['instructor'] == c_log]
+                    if not my_classes:
+                        st.info("개설된 클래스가 없습니다.")
+                    else:
+                        sel_class = st.selectbox("수정할 클래스 선택", [c['title'] for c in my_classes], key="edit_sel_class")
+                        target_class = next(c for c in my_classes if c['title'] == sel_class)
+                        
+                        # 기존 날짜 및 시간 텍스트 분리 분석
+                        try: curr_date = datetime.datetime.strptime(str(target_class['date']), "%Y-%m-%d").date()
+                        except: curr_date = datetime.date.today()
+                            
+                        try:
+                            start_str, end_str = target_class['time'].split(" ~ ")
+                            curr_start = datetime.datetime.strptime(start_str, "%H:%M").time()
+                            curr_end = datetime.datetime.strptime(end_str, "%H:%M").time()
+                        except:
+                            curr_start = datetime.time(14, 0); curr_end = datetime.time(16, 0)
+                            
+                        with st.form("edit_class_form"):
+                            edit_title = st.text_input("강의명", value=target_class['title'])
+                            c1, c2 = st.columns(2)
+                            edit_d_val = c1.date_input("강의 날짜", value=curr_date)
+                            t1, t2 = c1.columns(2)
+                            edit_start_time = t1.time_input("시작 시간", value=curr_start)
+                            edit_end_time = t2.time_input("종료 시간", value=curr_end)
+                            edit_loc = c2.text_input("장소", value=target_class['location'])
+                            edit_capa = c2.number_input("모집 정원", min_value=1, value=int(target_class['capacity']))
+                            edit_desc = st.text_area("설명 및 준비물", value=target_class['description'])
+                            
+                            if st.form_submit_button("💾 변경사항 저장하기", use_container_width=True):
+                                if not edit_title: st.error("⚠️ 강의명을 입력해 주세요!")
+                                elif edit_start_time >= edit_end_time: st.error("⚠️ 종료 시간은 시작 시간보다 늦어야 합니다.")
+                                else:
+                                    with st.status("📡 강의 정보 수정 중..."):
+                                        edit_t_val = f"{edit_start_time.strftime('%H:%M')} ~ {edit_end_time.strftime('%H:%M')}"
+                                        title_changed = (edit_title != target_class['title'])
+                                        
+                                        # 1. classes_data 원본 업데이트
+                                        for idx, idx_c in enumerate(st.session_state.classes_data):
+                                            if idx_c['id'] == target_class['id']:
+                                                st.session_state.classes_data[idx].update({
+                                                    "title": edit_title, "date": str(edit_d_val), "time": edit_t_val,
+                                                    "location": edit_loc, "capacity": edit_capa, "description": edit_desc
+                                                })
+                                                break
+                                        save_ok1 = safe_save_class("classes", st.session_state.classes_data)
+                                        
+                                        # 2. 강의명이 바뀐 경우 기존 신청서 명단 데이터도 동기화
+                                        save_ok2 = True
+                                        if title_changed:
+                                            for idx, idx_a in enumerate(st.session_state.c_reservations):
+                                                if idx_a['class_id'] == target_class['id']:
+                                                    st.session_state.c_reservations[idx]['class_title'] = edit_title
+                                            save_ok2 = safe_save_class("applications", st.session_state.c_reservations)
+                                            
+                                    if save_ok1 and save_ok2:
+                                        st.balloons(); st.success("성공적으로 변경되었습니다!"); time.sleep(1.5); st.rerun()
+                
                 else:
                     my_classes = [c for c in st.session_state.get('classes_data', []) if c['instructor'] == c_log]
                     if not my_classes: st.info("개설 내역이 없습니다.")
@@ -187,6 +250,7 @@ def run_class():
                             st.dataframe(df_app, use_container_width=True)
                         else: st.info("신청자가 없습니다.")
 
+    # --- [👑 Tab 3: 관리자 메뉴] ---
     with tab3:
         st.subheader("👑 원데이 클래스 통합 관리 시스템")
         if not st.session_state.c_admin_logged_in:
