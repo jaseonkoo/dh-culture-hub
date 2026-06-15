@@ -238,7 +238,7 @@ def run_typing_game():
                         if 'score_saved' in st.session_state: del st.session_state['score_saved']
                         st.rerun()
 
-with tab2:
+    with tab2:
         st.subheader("🏆 타자왕 명예의 전당 (Top 10)")
         if st.button("🔄 순위 새로고침"):
             get_leaderboard.clear()
