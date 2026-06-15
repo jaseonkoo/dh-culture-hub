@@ -243,6 +243,7 @@ def run_typing_game():
         if not board_data:
             st.info("아직 등록된 기록이 없습니다. 첫 번째 타자왕에 도전하세요!")
         else:
+            # 안전하게 float 변환 후 정렬
             try:
                 sorted_board = sorted(board_data, key=lambda x: float(x.get('기록(초)', 999)))
             except:
@@ -255,19 +256,33 @@ def run_typing_game():
             
             for i in range(min(len(top3), 3)):
                 with cols[i]:
+                    # 💡 [해결 1] Flexbox 속성을 추가하여 이름/부서/기록을 한 치의 오차 없이 완벽한 가운데 정렬로 맞춥니다.
                     st.markdown(f"""
-                    <div style="border: 1px solid #ddd; padding: 15px; border-radius: 8px; text-align: center; background-color: #fff;">
-                        <div class="{medals[i][1]}">{medals[i][0]}</div>
-                        <h3 style="margin: 10px 0;">{top3[i].get('이름', '-')}</h3>
-                        <p style="color: #666; margin: 0;">{top3[i].get('소속팀', '-')}</p>
-                        <h4 style="color: #ff4b4b; margin-top: 10px;">{top3[i].get('기록(초)', '-')}초</h4>
+                    <div style="border: 1px solid #e0e0e0; padding: 20px; border-radius: 12px; background-color: #ffffff; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                        <div class="{medals[i][1]}" style="margin-bottom: 8px;">{medals[i][0]}</div>
+                        <h3 style="margin: 0; font-weight: bold; color: #2c3e50;">{top3[i].get('이름', '-')}</h3>
+                        <p style="color: #7f8c8d; margin: 5px 0 15px 0; font-size: 0.9em;">{top3[i].get('소속팀', '-')}</p>
+                        <h3 style="color: #e74c3c; margin: 0;">{float(top3[i].get('기록(초)', 0)):.2f}초</h3>
                     </div>
                     """, unsafe_allow_html=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             
             if len(sorted_board) > 3:
+                # 4위부터 10위까지 데이터프레임 생성
                 df = pd.DataFrame(sorted_board[3:10])
                 df.index = range(4, 4 + len(df))
                 df.index.name = "순위"
-                st.dataframe(df[['이름', '소속팀', '기록(초)', '달성일']], use_container_width=True)
+                
+                # 필요한 열만 추출
+                df = df[['이름', '소속팀', '기록(초)', '달성일']]
+                
+                # 💡 [해결 3] 기록(초)를 문자열("OO.OO초")로 변환합니다. 
+                # 이렇게 하면 숫자가 우측으로 쏠려서 달성일과 합쳐져 보이는 착시(오류) 현상이 완벽히 사라집니다.
+                df['기록(초)'] = df['기록(초)'].apply(lambda x: f"{float(x):.2f}초")
+                
+                # 💡 [해결 2] Pandas Styler를 사용해 표의 내용(셀)과 제목(헤더)을 모두 예쁘게 가운데 정렬합니다.
+                styled_df = df.style.set_properties(**{'text-align': 'center'}) \
+                                    .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+                
+                st.dataframe(styled_df, use_container_width=True)
