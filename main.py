@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import datetime
+import uuid
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -14,23 +15,22 @@ import typing_game
 st.set_page_config(page_title="조직문화 활성화 Hub", page_icon="🏢", layout="wide")
 
 # ==========================================
-# 🛡️ 브라우저 고유 식별자 생성 (새로고침 방어용)
+# 🛡️ 브라우저 고유 식별자 생성 (URL 파라미터 활용)
 # ==========================================
 def get_client_identifier():
-    try:
-        # IP와 접속 환경(User-Agent)을 조합하여 사용자만의 고유한 지문을 만듭니다.
-        headers = st.context.headers
-        ip = headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        ua = headers.get("User-Agent", "").strip()
-        if not ip: ip = "UnknownIP"
-        return f"{ip}_{ua}"
-    except:
-        return "UnknownClient"
+    # 스트림릿의 URL에 'uid'라는 꼬리표가 있는지 확인합니다. (새로고침해도 유지됨!)
+    if "uid" in st.query_params:
+        return st.query_params["uid"]
+    else:
+        # 없다면 최초 접속이므로 고유 번호를 발급해 URL에 붙여줍니다.
+        new_uid = str(uuid.uuid4())[:8]
+        st.query_params["uid"] = new_uid
+        return new_uid
 
-# 전역(Global) 메모리: 새로고침을 해도 날아가지 않는 강력한 장바구니입니다.
+# 서버가 꺼지기 전까지 절대 지워지지 않는 강력한 출석부입니다.
 @st.cache_resource
 def get_visited_registry():
-    return {} # 형태: {'2026-06-15': {'home': {'ip_ua_1', 'ip_ua_2'}, ...}}
+    return {} 
 
 # ==========================================
 # 📊 구글 시트 기반: 누적 방문자 수 가져오기
@@ -60,20 +60,22 @@ def log_page_visit(page_name):
     client_id = get_client_identifier()
     registry = get_visited_registry()
     
-    # 자정이 지나면 어제 방문자 기록은 메모리에서 비워줍니다.
+    # 자정이 지나면 어제 출석부는 메모리에서 지워줍니다.
     for date_key in list(registry.keys()):
         if date_key != today_str:
             del registry[date_key]
             
-    # 오늘 날짜 및 페이지 딕셔너리 구조 만들기
     if today_str not in registry:
         registry[today_str] = {}
     if page_name not in registry[today_str]:
         registry[today_str][page_name] = set()
         
-    # 💡 핵심 방어막: 오늘 이미 이 페이지를 방문한 지문이라면 시트 연동을 즉시 멈춥니다!
+    # 💡 철벽 방어 1단계: 오늘 이 페이지 출석부에 내 지문이 있으면 곧바로 패스!
     if client_id in registry[today_str][page_name]:
         return
+        
+    # 🚀 철벽 방어 2단계: 구글 시트 통신(느림) 전에 무조건 출석부에 이름부터 올립니다! (F5 연타 차단)
+    registry[today_str][page_name].add(client_id)
 
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
@@ -108,10 +110,6 @@ def log_page_visit(page_name):
             new_row[col_idx - 1] = 1
             ws.append_row(new_row)
             
-        # ✅ 구글 시트에 +1 기록이 완료되면 서버 메모리에 지문을 등록합니다. (도배 완벽 차단)
-        registry[today_str][page_name].add(client_id)
-        
-        # 메인 페이지 접속 시 방문자 수를 즉시 갱신하도록 캐시 클리어
         if page_name == "home":
             get_total_visitors.clear()
             
@@ -129,8 +127,8 @@ def go_to(page_name):
 
 # --- [메인 화면] ---
 if st.session_state.page == "home":
-    log_page_visit("home")  # 📊 카운트 즉시 체크
-    total_visitors = get_total_visitors() # 📊 구글 시트에서 누적 방문자 호출
+    log_page_visit("home")
+    total_visitors = get_total_visitors()
     
     st.title("🚀 조직문화 활성화 통합 플랫폼")
     st.markdown("---")
