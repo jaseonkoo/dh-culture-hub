@@ -238,7 +238,7 @@ def run_typing_game():
                         if 'score_saved' in st.session_state: del st.session_state['score_saved']
                         st.rerun()
 
-    with tab2:
+with tab2:
         st.subheader("🏆 타자왕 명예의 전당 (Top 10)")
         if st.button("🔄 순위 새로고침"):
             get_leaderboard.clear()
@@ -249,7 +249,7 @@ def run_typing_game():
         if not board_data:
             st.info("아직 등록된 기록이 없습니다. 첫 번째 타자왕에 도전하세요!")
         else:
-            # 안전하게 float 변환 후 정렬
+            # 안전하게 기록 정렬
             try:
                 sorted_board = sorted(board_data, key=lambda x: float(x.get('기록(초)', 999)))
             except:
@@ -262,33 +262,52 @@ def run_typing_game():
             
             for i in range(min(len(top3), 3)):
                 with cols[i]:
-                    # 💡 [해결 1] Flexbox 속성을 추가하여 이름/부서/기록을 한 치의 오차 없이 완벽한 가운데 정렬로 맞춥니다.
+                    # 💡 [핵심 수정] text-align: center를 최상위 div에 넣고, 
+                    # 모든 내부 요소가 width 100%를 가지도록 하여 강제 중앙 정렬합니다.
                     st.markdown(f"""
-                    <div style="border: 1px solid #e0e0e0; padding: 20px; border-radius: 12px; background-color: #ffffff; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
-                        <div class="{medals[i][1]}" style="margin-bottom: 8px;">{medals[i][0]}</div>
-                        <h3 style="margin: 0; font-weight: bold; color: #2c3e50;">{top3[i].get('이름', '-')}</h3>
-                        <p style="color: #7f8c8d; margin: 5px 0 15px 0; font-size: 0.9em;">{top3[i].get('소속팀', '-')}</p>
-                        <h3 style="color: #e74c3c; margin: 0;">{float(top3[i].get('기록(초)', 0)):.2f}초</h3>
+                    <div style="
+                        border: 2px solid #efefef; 
+                        padding: 25px 10px; 
+                        border-radius: 15px; 
+                        background-color: #ffffff; 
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                        text-align: center;
+                        display: block;
+                        width: 100%;
+                    ">
+                        <div class="{medals[i][1]}" style="width: 100%; text-align: center; margin-bottom: 12px;">
+                            {medals[i][0]}
+                        </div>
+                        <div style="width: 100%; text-align: center; font-size: 1.6em; font-weight: 800; color: #1e293b; margin-bottom: 4px;">
+                            {top3[i].get('이름', '-')}
+                        </div>
+                        <div style="width: 100%; text-align: center; font-size: 1.0em; color: #64748b; margin-bottom: 15px; font-weight: 500;">
+                            {top3[i].get('소속팀', '-')}
+                        </div>
+                        <div style="width: 100%; text-align: center; font-size: 1.8em; font-weight: bold; color: #ff4b4b; background-color: #fff1f1; border-radius: 8px; padding: 5px 0;">
+                            {float(top3[i].get('기록(초)', 0)):.2f}초
+                        </div>
                     </div>
                     """, unsafe_allow_html=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             
             if len(sorted_board) > 3:
-                # 4위부터 10위까지 데이터프레임 생성
+                # 4위 이하 데이터 정리
                 df = pd.DataFrame(sorted_board[3:10])
                 df.index = range(4, 4 + len(df))
                 df.index.name = "순위"
-                
-                # 필요한 열만 추출
                 df = df[['이름', '소속팀', '기록(초)', '달성일']]
                 
-                # 💡 [해결 3] 기록(초)를 문자열("OO.OO초")로 변환합니다. 
-                # 이렇게 하면 숫자가 우측으로 쏠려서 달성일과 합쳐져 보이는 착시(오류) 현상이 완벽히 사라집니다.
+                # 기록 뒤에 '초' 붙이기 (기록-달성일 겹침 해결)
                 df['기록(초)'] = df['기록(초)'].apply(lambda x: f"{float(x):.2f}초")
                 
-                # 💡 [해결 2] Pandas Styler를 사용해 표의 내용(셀)과 제목(헤더)을 모두 예쁘게 가운데 정렬합니다.
-                styled_df = df.style.set_properties(**{'text-align': 'center'}) \
-                                    .set_table_styles([{'selector': 'th', 'props': [('text-align', 'center')]}])
+                # 💡 [핵심 수정] 4~10위 표 중앙 정렬
+                styled_df = df.style.set_properties(**{
+                    'text-align': 'center',
+                    'font-family': 'sans-serif'
+                }).set_table_styles([
+                    {'selector': 'th', 'props': [('text-align', 'center'), ('background-color', '#f8f9fa')]}
+                ])
                 
                 st.dataframe(styled_df, use_container_width=True)
