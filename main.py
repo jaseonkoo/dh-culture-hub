@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -11,6 +12,25 @@ import typing_game
 
 # 페이지 기본 설정
 st.set_page_config(page_title="조직문화 활성화 Hub", page_icon="🏢", layout="wide")
+
+# ==========================================
+# 🛡️ 브라우저 고유 식별자 생성 (새로고침 방어용)
+# ==========================================
+def get_client_identifier():
+    try:
+        # IP와 접속 환경(User-Agent)을 조합하여 사용자만의 고유한 지문을 만듭니다.
+        headers = st.context.headers
+        ip = headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        ua = headers.get("User-Agent", "").strip()
+        if not ip: ip = "UnknownIP"
+        return f"{ip}_{ua}"
+    except:
+        return "UnknownClient"
+
+# 전역(Global) 메모리: 새로고침을 해도 날아가지 않는 강력한 장바구니입니다.
+@st.cache_resource
+def get_visited_registry():
+    return {} # 형태: {'2026-06-15': {'home': {'ip_ua_1', 'ip_ua_2'}, ...}}
 
 # ==========================================
 # 📊 구글 시트 기반: 누적 방문자 수 가져오기
@@ -36,10 +56,23 @@ def get_total_visitors():
 # 📊 구글 시트 일별/페이지별 실시간 통계 기록 로직
 # ==========================================
 def log_page_visit(page_name):
-    # 한 세션 내에서 동일 페이지의 중복 카운트를 방지합니다.
     today_str = str(datetime.date.today())
-    session_key = f"logged_{page_name}_{today_str}"
-    if st.session_state.get(session_key, False):
+    client_id = get_client_identifier()
+    registry = get_visited_registry()
+    
+    # 자정이 지나면 어제 방문자 기록은 메모리에서 비워줍니다.
+    for date_key in list(registry.keys()):
+        if date_key != today_str:
+            del registry[date_key]
+            
+    # 오늘 날짜 및 페이지 딕셔너리 구조 만들기
+    if today_str not in registry:
+        registry[today_str] = {}
+    if page_name not in registry[today_str]:
+        registry[today_str][page_name] = set()
+        
+    # 💡 핵심 방어막: 오늘 이미 이 페이지를 방문한 지문이라면 시트 연동을 즉시 멈춥니다!
+    if client_id in registry[today_str][page_name]:
         return
 
     try:
@@ -75,8 +108,8 @@ def log_page_visit(page_name):
             new_row[col_idx - 1] = 1
             ws.append_row(new_row)
             
-        # 성공적으로 기록 시 세션에 저장하여 새로고침 도배 방지
-        st.session_state[session_key] = True
+        # ✅ 구글 시트에 +1 기록이 완료되면 서버 메모리에 지문을 등록합니다. (도배 완벽 차단)
+        registry[today_str][page_name].add(client_id)
         
         # 메인 페이지 접속 시 방문자 수를 즉시 갱신하도록 캐시 클리어
         if page_name == "home":
