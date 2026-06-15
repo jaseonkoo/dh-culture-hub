@@ -15,14 +15,14 @@ import typing_game
 st.set_page_config(page_title="조직문화 활성화 Hub", page_icon="🏢", layout="wide")
 
 # ==========================================
-# 🛡️ 브라우저 고유 식별자 생성 (URL 파라미터 활용)
+# 🛡️ 세션(접속) 고유 식별자 생성 (새로고침 도배 방어용)
 # ==========================================
 def get_client_identifier():
     # 스트림릿의 URL에 'uid'라는 꼬리표가 있는지 확인합니다. (새로고침해도 유지됨!)
     if "uid" in st.query_params:
         return st.query_params["uid"]
     else:
-        # 없다면 최초 접속이므로 고유 번호를 발급해 URL에 붙여줍니다.
+        # 없다면 새로운 접속(세션)이므로 고유 번호를 발급해 URL에 붙여줍니다.
         new_uid = str(uuid.uuid4())[:8]
         st.query_params["uid"] = new_uid
         return new_uid
@@ -33,7 +33,7 @@ def get_visited_registry():
     return {} 
 
 # ==========================================
-# 📊 구글 시트 기반: 누적 방문자 수 가져오기
+# 📊 구글 시트 기반: 누적 접속 횟수 가져오기
 # ==========================================
 @st.cache_data(ttl=60, show_spinner=False)
 def get_total_visitors():
@@ -46,7 +46,7 @@ def get_total_visitors():
         ws = doc.worksheet("접속통계")
         records = ws.get_all_records()
         
-        # '메인' 열에 기록된 모든 일자의 접속자 수를 합산합니다.
+        # '메인' 열에 기록된 모든 일자의 접속 횟수를 합산합니다.
         total = sum(int(r.get("메인", 0)) for r in records if str(r.get("메인", 0)).isdigit())
         return total
     except:
@@ -153,7 +153,8 @@ if st.session_state.page == "home":
         if st.button("입장하기", key="btn_typing", use_container_width=True): go_to("typing")
 
     st.markdown("---")
-    st.markdown(f"<span style='color: gray; font-size: 0.9em;'>📊 현재 누적 방문자 수: {total_visitors}명</span>", unsafe_allow_html=True)
+    # ✨ 명칭을 '누적 접속 횟수'로 변경하고, 단위도 '명'에서 '회'로 변경했습니다.
+    st.markdown(f"<span style='color: gray; font-size: 0.9em;'>📊 현재 누적 접속 횟수: {total_visitors}회</span>", unsafe_allow_html=True)
 
 # --- [각 프로그램 페이지 연결 및 통계 체크] ---
 elif st.session_state.page == "mentoring":
