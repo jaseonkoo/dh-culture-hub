@@ -47,7 +47,13 @@ def run_typing_game():
         try:
             doc = init_gspread_typing()
             ws = doc.worksheet("leaderboard")
-            today_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            
+            # 💡 [핵심 수정] 서버 시간이 아닌 '한국 시간(KST)'으로 시계를 맞춥니다.
+            # 전 세계 표준시에서 9시간을 더해 한국 시간으로 강제 고정하는 마법입니다.
+            import datetime
+            kst = datetime.timezone(datetime.timedelta(hours=9))
+            today_str = datetime.datetime.now(kst).strftime("%Y-%m-%d %H:%M")
+            
             ws.append_row([name, team, score, today_str])
             get_leaderboard.clear() 
             return True
