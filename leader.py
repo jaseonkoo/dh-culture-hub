@@ -12,6 +12,8 @@ def run_leader_talk():
         <style>
         .stTextInput, .stSelectbox, .stDateInput, .stTextArea, .stTimeInput { margin-bottom: 12px !important; }
         .status-item { padding: 5px 10px; border-bottom: 1px solid #f0f2f6; line-height: 1.5; }
+        /* 이중 탭 디자인을 구분감 있게 만들어주는 CSS */
+        div[data-testid="stTabs"] div[data-testid="stTabs"] button { font-size: 0.9em; padding-top: 5px; padding-bottom: 5px; }
         </style>
     """, unsafe_allow_html=True)
     
@@ -85,10 +87,13 @@ def run_leader_talk():
 
     leader_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('leaders_data', [])]
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🙋‍♂️ 대화 신청", "💼 리더 일정 관리", "📋 신청 현황 관리", "👑 관리자 메뉴"])
+    # 🚀 큰 방 3개 (역할별 메인 탭) 생성
+    main_tab_mentee, main_tab_leader, main_tab_admin = st.tabs(["🙋‍♂️ 구성원 대화 신청", "💼 리더 공간", "👑 관리자 메뉴"])
 
-    # --- [🙋‍♂️ Tab 1: 대화 신청] ---
-    with tab1:
+    # =========================================================
+    # 🙋‍♂️ [메인 탭 1: 구성원 대화 신청 공간]
+    # =========================================================
+    with main_tab_mentee:
         st.subheader("🗓️ 리더와의 대화 신청")
         if st.button("🔄 최신 현황 불러오기", key="l_refresh_1"): fetch_latest_data_leader(force=True); st.rerun()
 
@@ -109,7 +114,6 @@ def run_leader_talk():
 
         st.markdown("---")
         
-        # ✨ 1단계: 즉각적인 화면 변화가 필요한 '선택창'을 먼저 위에 배치합니다. (이때만 한 번 깜빡입니다)
         st.markdown("#### 1️⃣ 대화할 리더 및 일정 선택")
         r_sel1, r_sel2 = st.columns(2)
         selected_m = r_sel1.selectbox("리더 선택", leader_names, key="l_s_t1")
@@ -135,7 +139,6 @@ def run_leader_talk():
                 loc = slots[0].get('location', '-')
                 st.success(f"✅ **자동 배정된 대화 시간:** {ts.strftime('%H:%M')} ~ {te.strftime('%H:%M')} (📍 장소: {loc})")
                 
-                # ✨ 2단계: 타이핑할 때 화면이 깜빡이지 않도록 st.form(장바구니)으로 단단히 묶어줍니다!
                 st.markdown("#### 2️⃣ 신청자 정보 입력")
                 with st.form(key="apply_form"):
                     r1_c1, r1_c2 = st.columns(2)
@@ -148,7 +151,6 @@ def run_leader_talk():
                     
                     topic = st.text_area("대화 희망 주제 (필수)")
                     
-                    # 폼 내부의 제출 버튼 (이 버튼을 누를 때만 서버와 통신합니다)
                     submit_btn = st.form_submit_button("🚀 신청하기", use_container_width=True)
                     
                     if submit_btn:
@@ -172,76 +174,138 @@ def run_leader_talk():
                                     send_email(m_info['email'], mail_subject, mail_body)
                             st.balloons(); time.sleep(1); st.rerun()
 
-    with tab2:
-        st.subheader("💼 나의 일정 관리")
-        m_log2 = st.selectbox("본인 성함 선택", leader_names, key="l_log_t2", on_change=reset_pw_l2)
-        if m_log2 != "선택해주세요":
-            minfo = next((m for m in st.session_state.get('leaders_data', []) if m['name']==m_log2), None)
-            if minfo and st.text_input("비밀번호 입력", type="password", key="l_pw_t2") == str(minfo['pw']):
-                c2_1, c2_2, c2_3, c2_4 = st.columns(4)
-                dv, sv, ev, lv = c2_1.date_input("날짜", key="l_sd_t2"), c2_2.time_input("시작", datetime.time(0,0), key="l_ss_t2"), c2_3.time_input("종료", datetime.time(0,0), key="l_se_t2"), c2_4.text_input("장소", key="l_sl_t2")
-                
-                if st.button("🗓️ 일정 등록하기", type="primary", use_container_width=True, key="l_sb_t2"):
-                    is_duplicate = False
-                    for r in st.session_state.get('l_reservations', []):
-                        if r['mentor'] == m_log2 and r['date'] == dv:
-                            if not (ev <= r['start_time'] or sv >= r['end_time']): is_duplicate = True; break
-                    if not is_duplicate:
-                        for s in st.session_state.get('l_available_slots', []):
-                            if s['mentor'] == m_log2 and s['date'] == dv:
-                                if not (ev <= s['start'] or sv >= s['end']): is_duplicate = True; break
+    # =========================================================
+    # 💼 [메인 탭 2: 리더 전용 공간]
+    # =========================================================
+    with main_tab_leader:
+        # 🚀 리더 방 안의 작은 서랍 3개 (서브 메뉴) 생성
+        sub_tab_schedule, sub_tab_manage, sub_tab_info = st.tabs(["🗓️ 일정 등록 및 관리", "📋 신청 현황 관리", "⚙️ 리더 정보 변경"])
+        
+        # --- [서브 탭 1: 일정 관리] ---
+        with sub_tab_schedule:
+            st.subheader("💼 나의 일정 관리")
+            m_log2 = st.selectbox("본인 성함 선택", leader_names, key="l_log_t2", on_change=reset_pw_l2)
+            if m_log2 != "선택해주세요":
+                minfo = next((m for m in st.session_state.get('leaders_data', []) if m['name']==m_log2), None)
+                if minfo and st.text_input("비밀번호 입력", type="password", key="l_pw_t2") == str(minfo['pw']):
+                    c2_1, c2_2, c2_3, c2_4 = st.columns(4)
+                    dv, sv, ev, lv = c2_1.date_input("날짜", key="l_sd_t2"), c2_2.time_input("시작", datetime.time(0,0), key="l_ss_t2"), c2_3.time_input("종료", datetime.time(0,0), key="l_se_t2"), c2_4.text_input("장소", key="l_sl_t2")
                     
-                    if is_duplicate: st.error("🚫 중복된 시간이 존재합니다.")
-                    elif sv >= ev: st.error("🚫 시간 설정 오류")
-                    else:
-                        with st.status("📡 저장 중..."):
-                            st.session_state.l_available_slots.append({"mentor": m_log2, "date": dv, "start": sv, "end": ev, "location": lv})
-                            safe_save_leader("slots", st.session_state.l_available_slots)
-                        st.snow(); st.success("등록 완료!"); time.sleep(1); st.rerun()
-            
-                st.divider(); st.markdown(f"#### 🗑️ {m_log2} 리더님의 등록 일정")
-                my_slots = [x for x in st.session_state.get('l_available_slots', []) if x['mentor'] == m_log2]
-                for i, s in enumerate(my_slots):
-                    col_a, col_b = st.columns([4, 1]); w_s = WEEKS[s['date'].weekday()]
-                    col_a.write(f"📅 {s['date']}({w_s}) | ⏰ {s['start']}~{s['end']} | 📍 {s.get('location','-')}")
-                    if col_b.button("삭제", key=f"l_del_s_{i}"):
-                        st.session_state.l_available_slots.remove(s); safe_save_leader("slots", st.session_state.l_available_slots); st.rerun()
-
-    with tab3:
-        st.subheader("📋 구성원 신청 현황 관리")
-        m_sel3 = st.selectbox("본인 성함 선택", leader_names, key="l_sel_t3", on_change=reset_pw_l3)
-        if m_sel3 != "선택해주세요":
-            minfo3 = next((m for m in st.session_state.get('leaders_data', []) if m['name']==m_sel3), None)
-            if minfo3 and st.text_input("비번 확인", type="password", key="l_pw_t3") == str(minfo3['pw']):
-                my_res = [x for x in st.session_state.get('l_reservations', []) if x['mentor']==m_sel3]
-                for r in my_res:
-                    with st.expander(f"[{r['status']}] {r['date']}({WEEKS[r['date'].weekday()]}) | {r['mentee_name']}님"):
-                        col_r1, col_r2 = st.columns(2)
-                        with col_r1:
-                            st.write(f"- 성함: {r['mentee_name']} ({r.get('mentee_position','-')})\n- 팀명: {r.get('mentee_team','-')}\n- 이메일: {r.get('mentee_email','-')}")
-                        with col_r2:
-                            st.write(f"- 시간: {r['start_time']} ~ {r['end_time']}\n- 주제: {r['topic']}")
-                        
-                        if r['status'] == "대기중":
-                            b1, b2 = st.columns(2)
-                            if b1.button("✅ 승인", key=f"l_ok_{r['id']}", use_container_width=True):
-                                r['status']="승인됨"; safe_save_leader("reservations", st.session_state.l_reservations)
-                                if r.get('mentee_email'):
-                                    body = f"안녕하세요, {r['mentee_name']}님!\n\n신청하신 리더와의 대화가 승인되었습니다.\n\n- 일시: {r['date']} ({r['start_time']} ~ {r['end_time']})\n- 리더: {m_sel3} 리더님\n\n감사합니다."
-                                    send_email(r['mentee_email'], "[대한사료 리더대화] 신청하신 예약이 승인되었습니다!", body)
-                                st.rerun()
-                            
-                            if b2.button("❌ 거절", key=f"l_no_{r['id']}", use_container_width=True):
-                                r['status']="거절됨"; safe_save_leader("reservations", st.session_state.l_reservations)
-                                if r.get('mentee_email'):
-                                    send_email(r['mentee_email'], "[대한사료 리더대화] 신청하신 예약이 반려되었습니다.", f"아쉽게도 {m_sel3} 리더님이 예약을 반려하셨습니다. 다른 일정을 선택해 주세요.")
-                                st.session_state.l_available_slots.append({
-                                    "mentor": r['mentor'], "date": r['date'], "start": r['start_time'], "end": r['end_time'], "location": r.get('location', '')
-                                })
+                    if st.button("🗓️ 일정 등록하기", type="primary", use_container_width=True, key="l_sb_t2"):
+                        is_duplicate = False
+                        for r in st.session_state.get('l_reservations', []):
+                            if r['mentor'] == m_log2 and r['date'] == dv:
+                                if not (ev <= r['start_time'] or sv >= r['end_time']): is_duplicate = True; break
+                        if not is_duplicate:
+                            for s in st.session_state.get('l_available_slots', []):
+                                if s['mentor'] == m_log2 and s['date'] == dv:
+                                    if not (ev <= s['start'] or sv >= s['end']): is_duplicate = True; break
+                    
+                        if is_duplicate: st.error("🚫 중복된 시간이 존재합니다.")
+                        elif sv >= ev: st.error("🚫 시간 설정 오류")
+                        else:
+                            with st.status("📡 저장 중..."):
+                                st.session_state.l_available_slots.append({"mentor": m_log2, "date": dv, "start": sv, "end": ev, "location": lv})
                                 safe_save_leader("slots", st.session_state.l_available_slots)
-                                st.rerun()
+                            st.snow(); st.success("등록 완료!"); time.sleep(1); st.rerun()
+            
+                    st.divider(); st.markdown(f"#### 🗑️ {m_log2} 리더님의 등록 일정")
+                    my_slots = [x for x in st.session_state.get('l_available_slots', []) if x['mentor'] == m_log2]
+                    for i, s in enumerate(my_slots):
+                        col_a, col_b = st.columns([4, 1]); w_s = WEEKS[s['date'].weekday()]
+                        col_a.write(f"📅 {s['date']}({w_s}) | ⏰ {s['start']}~{s['end']} | 📍 {s.get('location','-')}")
+                        if col_b.button("삭제", key=f"l_del_s_{i}"):
+                            st.session_state.l_available_slots.remove(s); safe_save_leader("slots", st.session_state.l_available_slots); st.rerun()
 
-    with tab4:
+        # --- [서브 탭 2: 신청 현황 관리] ---
+        with sub_tab_manage:
+            st.subheader("📋 구성원 신청 현황 관리")
+            m_sel3 = st.selectbox("본인 성함 선택", leader_names, key="l_sel_t3", on_change=reset_pw_l3)
+            if m_sel3 != "선택해주세요":
+                minfo3 = next((m for m in st.session_state.get('leaders_data', []) if m['name']==m_sel3), None)
+                if minfo3 and st.text_input("비번 확인", type="password", key="l_pw_t3") == str(minfo3['pw']):
+                    my_res = [x for x in st.session_state.get('l_reservations', []) if x['mentor']==m_sel3]
+                    for r in my_res:
+                        with st.expander(f"[{r['status']}] {r['date']}({WEEKS[r['date'].weekday()]}) | {r['mentee_name']}님"):
+                            col_r1, col_r2 = st.columns(2)
+                            with col_r1:
+                                st.write(f"- 성함: {r['mentee_name']} ({r.get('mentee_position','-')})\n- 팀명: {r.get('mentee_team','-')}\n- 이메일: {r.get('mentee_email','-')}")
+                            with col_r2:
+                                st.write(f"- 시간: {r['start_time']} ~ {r['end_time']}\n- 주제: {r['topic']}")
+                            
+                            if r['status'] == "대기중":
+                                b1, b2 = st.columns(2)
+                                if b1.button("✅ 승인", key=f"l_ok_{r['id']}", use_container_width=True):
+                                    r['status']="승인됨"; safe_save_leader("reservations", st.session_state.l_reservations)
+                                    if r.get('mentee_email'):
+                                        body = f"안녕하세요, {r['mentee_name']}님!\n\n신청하신 리더와의 대화가 승인되었습니다.\n\n- 일시: {r['date']} ({r['start_time']} ~ {r['end_time']})\n- 리더: {m_sel3} 리더님\n\n감사합니다."
+                                        send_email(r['mentee_email'], "[대한사료 리더대화] 신청하신 예약이 승인되었습니다!", body)
+                                    st.rerun()
+                            
+                                if b2.button("❌ 거절", key=f"l_no_{r['id']}", use_container_width=True):
+                                    r['status']="거절됨"; safe_save_leader("reservations", st.session_state.l_reservations)
+                                    if r.get('mentee_email'):
+                                        send_email(r['mentee_email'], "[대한사료 리더대화] 신청하신 예약이 반려되었습니다.", f"아쉽게도 {m_sel3} 리더님이 예약을 반려하셨습니다. 다른 일정을 선택해 주세요.")
+                                    st.session_state.l_available_slots.append({
+                                        "mentor": r['mentor'], "date": r['date'], "start": r['start_time'], "end": r['end_time'], "location": r.get('location', '')
+                                    })
+                                    safe_save_leader("slots", st.session_state.l_available_slots)
+                                    st.rerun()
+
+        # --- [서브 탭 3: 리더 정보 변경] ---
+        with sub_tab_info:
+            st.subheader("⚙️ 리더 정보 변경")
+            st.info("💡 본인의 담당/전문분야, 인사말, 그리고 비밀번호를 편하게 직접 수정하실 수 있습니다.")
+            
+            l_log_info = st.selectbox("본인 성함 선택", leader_names, key="l_log_info")
+            if l_log_info != "선택해주세요":
+                linfo_info = next((m for m in st.session_state.get('leaders_data', []) if m['name']==l_log_info), None)
+                if linfo_info:
+                    current_pw_input = st.text_input("현재 비밀번호 입력", type="password", key="l_pw_info_check")
+                    if current_pw_input:
+                        if current_pw_input == str(linfo_info['pw']):
+                            with st.form(key="edit_leader_info_form"):
+                                st.markdown("#### 📝 프로필 정보 수정")
+                                new_exp = st.text_input("담당/전문분야", value=linfo_info.get('expertise', ''))
+                                new_greet = st.text_area("인사말", value=linfo_info.get('greeting', ''))
+                                
+                                st.markdown("#### 🔒 비밀번호 변경 (유지하려면 비워두세요)")
+                                c1, c2 = st.columns(2)
+                                new_pw = c1.text_input("새로운 비밀번호", type="password")
+                                new_pw_confirm = c2.text_input("새로운 비밀번호 확인", type="password")
+                                
+                                submit_info = st.form_submit_button("💾 정보 업데이트", use_container_width=True)
+                                
+                                if submit_info:
+                                    has_error = False
+                                    final_pw = linfo_info['pw']
+                                    
+                                    if new_pw or new_pw_confirm:
+                                        if new_pw != new_pw_confirm:
+                                            st.error("🚫 새로운 비밀번호와 확인용 비밀번호가 일치하지 않습니다.")
+                                            has_error = True
+                                        else:
+                                            final_pw = new_pw
+                                            
+                                    if not has_error:
+                                        with st.status("📡 정보 동기화 중..."):
+                                            for idx, m in enumerate(st.session_state.leaders_data):
+                                                if m['name'] == l_log_info:
+                                                    st.session_state.leaders_data[idx]['expertise'] = new_exp
+                                                    st.session_state.leaders_data[idx]['greeting'] = new_greet
+                                                    st.session_state.leaders_data[idx]['pw'] = final_pw
+                                                    break
+                                            safe_save_leader("leaders", st.session_state.leaders_data)
+                                            st.success("✅ 리더 정보가 성공적으로 변경되었습니다!")
+                                            time.sleep(1.5)
+                                            st.rerun()
+                        else:
+                            st.error("🚫 현재 비밀번호가 일치하지 않습니다. 다시 확인해 주세요.")
+
+    # =========================================================
+    # 👑 [메인 탭 3: 관리자 공간]
+    # =========================================================
+    with main_tab_admin:
         st.subheader("👑 인사총무팀 전용 관리 시스템")
         if not st.session_state.l_admin_logged_in:
             aid, apw = st.text_input("ID", key="l_ad_id"), st.text_input("PW", type="password", key="l_ad_pw")
