@@ -196,8 +196,8 @@ def run_mentoring():
     # 💼 [메인 탭 2: 멘토 공간]
     # =========================================================
     with main_tab_mentor:
-        # 🚀 2단계: 멘토 메인 메뉴 안의 이중 탭 (서브 메뉴)
-        sub_tab_schedule, sub_tab_manage, sub_tab_pw = st.tabs(["🗓️ 일정 등록 및 관리", "📋 신청 현황 및 예약 관리", "🔑 비밀번호 변경"])
+        # 🚀 2단계: 멘토 메인 메뉴 안의 이중 탭 (서브 메뉴 이름 변경: 비밀번호 변경 -> 멘토 정보 변경)
+        sub_tab_schedule, sub_tab_manage, sub_tab_info = st.tabs(["🗓️ 일정 등록 및 관리", "📋 신청 현황 및 예약 관리", "⚙️ 멘토 정보 변경"])
         
         # --- [서브 탭 1: 일정 관리] ---
         with sub_tab_schedule:
@@ -216,7 +216,6 @@ def run_mentoring():
                                 if not (ev <= r['start_time'] or sv >= r['end_time']): is_duplicate = True; break
                         if not is_duplicate:
                             for s in st.session_state.get('available_slots', []):
-                                # ✨ 수정 포인트: && 를 and 로 변경했습니다!
                                 if s['mentor'] == m_log2 and s['date'] == dv:
                                     if not (ev <= s['start'] or sv >= s['end']): is_duplicate = True; break
                         
@@ -314,42 +313,55 @@ def run_mentoring():
                                                     time.sleep(1.5)
                                                     st.rerun()
 
-        # --- [서브 탭 3: 비밀번호 변경] ---
-        with sub_tab_pw:
-            st.subheader("🔑 멘토 비밀번호 변경")
-            st.info("💡 안전한 플랫폼 이용을 위해 초기 지정된 암호는 본인만 아는 비밀번호로 수시 변경하여 관리해 주세요.")
+        # --- [서브 탭 3: 멘토 정보 변경] ---
+        with sub_tab_info:
+            st.subheader("⚙️ 멘토 정보 변경")
+            st.info("💡 본인의 전문분야, 인사말, 그리고 비밀번호를 편하게 직접 수정하실 수 있습니다.")
             
-            with st.form(key="change_password_form_mentoring"):
-                c1, c2 = st.columns(2)
-                cp_name = c1.selectbox("본인 성함 선택", mentor_names, key="cp_name_sel_m")
-                current_pw_input = c1.text_input("현재 비밀번호 입력", type="password")
-                
-                new_pw_input = c2.text_input("새로운 비밀번호 입력", type="password")
-                new_pw_confirm = c2.text_input("새로운 비밀번호 확인", type="password")
-                
-                submit_cp = st.form_submit_button("🔒 비밀번호 변경하기", use_container_width=True)
-                
-                if submit_cp:
-                    if cp_name == "선택해주세요" or not current_pw_input or not new_pw_input or not new_pw_confirm:
-                        st.warning("모든 항목을 정확하게 입력해 주세요.")
-                    else:
-                        cp_info = next((m for m in st.session_state.mentors_data if m['name'] == cp_name), None)
-                        if not cp_info:
-                            st.error("해당 이름의 멘토를 찾을 수 없습니다.")
-                        elif str(cp_info['pw']) != current_pw_input:
-                            st.error("🚫 현재 비밀번호가 일치하지 않습니다. 다시 확인해 주세요.")
-                        elif new_pw_input != new_pw_confirm:
-                            st.error("🚫 새로운 비밀번호와 확인용 비밀번호가 일치하지 않습니다.")
+            m_log_info = st.selectbox("본인 성함 선택", mentor_names, key="m_log_info")
+            if m_log_info != "선택해주세요":
+                minfo_info = next((m for m in st.session_state.get('mentors_data', []) if m['name']==m_log_info), None)
+                if minfo_info:
+                    current_pw_input = st.text_input("현재 비밀번호 입력", type="password", key="m_pw_info_check")
+                    if current_pw_input:
+                        if current_pw_input == str(minfo_info['pw']):
+                            with st.form(key="edit_mentor_info_form"):
+                                st.markdown("#### 📝 프로필 정보 수정")
+                                new_exp = st.text_input("전문분야", value=minfo_info.get('expertise', ''))
+                                new_greet = st.text_area("인사말", value=minfo_info.get('greeting', ''))
+                                
+                                st.markdown("#### 🔒 비밀번호 변경 (유지하려면 비워두세요)")
+                                c1, c2 = st.columns(2)
+                                new_pw = c1.text_input("새로운 비밀번호", type="password")
+                                new_pw_confirm = c2.text_input("새로운 비밀번호 확인", type="password")
+                                
+                                submit_info = st.form_submit_button("💾 정보 업데이트", use_container_width=True)
+                                
+                                if submit_info:
+                                    has_error = False
+                                    final_pw = minfo_info['pw']
+                                    
+                                    if new_pw or new_pw_confirm:
+                                        if new_pw != new_pw_confirm:
+                                            st.error("🚫 새로운 비밀번호와 확인용 비밀번호가 일치하지 않습니다.")
+                                            has_error = True
+                                        else:
+                                            final_pw = new_pw
+                                            
+                                    if not has_error:
+                                        with st.status("📡 정보 동기화 중..."):
+                                            for idx, m in enumerate(st.session_state.mentors_data):
+                                                if m['name'] == m_log_info:
+                                                    st.session_state.mentors_data[idx]['expertise'] = new_exp
+                                                    st.session_state.mentors_data[idx]['greeting'] = new_greet
+                                                    st.session_state.mentors_data[idx]['pw'] = final_pw
+                                                    break
+                                            if safe_save("mentors", st.session_state.mentors_data):
+                                                st.success("✅ 멘토 정보가 성공적으로 변경되었습니다!")
+                                                time.sleep(1.5)
+                                                st.rerun()
                         else:
-                            with st.status("📡 비밀번호 변경 내용 동기화 중..."):
-                                for idx, m in enumerate(st.session_state.mentors_data):
-                                    if m['name'] == cp_name:
-                                        st.session_state.mentors_data[idx]['pw'] = new_pw_input
-                                        break
-                                if safe_save("mentors", st.session_state.mentors_data):
-                                    st.success("✅ 비밀번호가 안전하게 변경되었습니다!")
-                                    time.sleep(1.5)
-                                    st.rerun()
+                            st.error("🚫 현재 비밀번호가 일치하지 않습니다. 다시 확인해 주세요.")
 
     # =========================================================
     # 👑 [메인 탭 3: 관리자 공간]
