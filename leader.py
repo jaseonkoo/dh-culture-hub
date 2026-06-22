@@ -1,3 +1,5 @@
+import requests
+import json
 import streamlit as st
 import datetime
 import uuid
@@ -84,6 +86,28 @@ def run_leader_talk():
                 ws.update([df.columns.values.tolist()] + df.values.tolist())
             fetch_latest_data_leader(force=True)
         except: st.error("⚠️ 데이터 저장 오류")
+
+    # ✨ 두레이 알림 발송용 함수 (리더 대화 맞춤형 텍스트 적용)
+    def send_dooray_noti(leader_name, date, start, end, location):
+        webhook_url = "https://dhflour.dooray.com/services/2381698226825327324/4360453717122810883/xUa23WA3SJGNp2KDxVnZWA"
+        
+        # 시간에 불필요한 '초' 단위가 나오지 않도록 포맷팅합니다.
+        start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
+        end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
+        
+        message = {
+            "botName": "조직문화 알리미",
+            "botIconImage": "https://cdn-icons-png.flaticon.com/512/1944/1944436.png",
+            "text": f"📢 [{leader_name} 리더님]의 새로운 대화 일정이 오픈되었습니다!\n\n"
+                    f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
+                    f"  • 📍 장소 : {location}\n\n"
+                    f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!\n"
+                    f"      (https://dhfeed-culture.streamlit.app)"
+        }
+        try:
+            requests.post(webhook_url, headers={"Content-Type": "application/json"}, data=json.dumps(message))
+        except:
+            pass
 
     leader_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('leaders_data', [])]
 
@@ -207,6 +231,10 @@ def run_leader_talk():
                             with st.status("📡 저장 중..."):
                                 st.session_state.l_available_slots.append({"mentor": m_log2, "date": dv, "start": sv, "end": ev, "location": lv})
                                 safe_save_leader("slots", st.session_state.l_available_slots)
+                                
+                                # ✨ 일정이 구글 시트에 정상적으로 등록되면 두레이 알림 발송!
+                                send_dooray_noti(m_log2, dv, sv, ev, lv)
+                                
                             st.snow(); st.success("등록 완료!"); time.sleep(1); st.rerun()
             
                     st.divider(); st.markdown(f"#### 🗑️ {m_log2} 리더님의 등록 일정")
