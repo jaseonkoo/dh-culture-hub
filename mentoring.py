@@ -94,21 +94,27 @@ def run_mentoring():
             st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
             return False
 
-    # ✨ 두레이 알림 발송용 함수 (차장님이 주신 URL이 적용되었습니다)
+    # ✨ 두레이 알림 발송용 함수 (메시지 포맷 수정)
     def send_dooray_noti(mentor_name, date, start, end, location):
         webhook_url = "https://dhflour.dooray.com/services/2381698226825327324/4360453717122810883/xUa23WA3SJGNp2KDxVnZWA"
+        
+        # 시간에 불필요한 '초' 단위가 나오지 않도록 HH:MM 형식으로 포맷팅합니다.
+        start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
+        end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
+        
         message = {
             "botName": "조직문화 알리미",
             "botIconImage": "https://cdn-icons-png.flaticon.com/512/1944/1944436.png",
-            "text": f"📢 **[{mentor_name} 멘토님]의 새로운 멘토링 일정이 오픈되었습니다!**\n\n"
-                    f"  • 📅 **일시:** {date} ({start} ~ {end})\n"
-                    f"  • 📍 **장소:** {location}\n\n"
-                    f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!"
+            "text": f"📢 [{mentor_name} 멘토님]의 새로운 멘토링 일정이 오픈되었습니다!\n\n"
+                    f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
+                    f"  • 📍 장소 : {location}\n\n"
+                    f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!\n"
+                    f"      (https://dhfeed-culture.streamlit.app)"
         }
         try:
             requests.post(webhook_url, headers={"Content-Type": "application/json"}, data=json.dumps(message))
         except:
-            pass # 통신 오류가 발생해도 메인 프로그램은 멈추지 않게 보호합니다.
+            pass
 
     mentor_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('mentors_data', [])]
 
