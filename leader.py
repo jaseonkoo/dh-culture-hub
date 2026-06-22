@@ -102,7 +102,7 @@ def run_leader_talk():
                     f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
                     f"  • 📍 장소 : {location}\n\n"
                     f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!\n"
-                    f"      (https://dhfeed-culture.streamlit.app)"
+                    f"      https://dhfeed-culture.streamlit.app"
         }
         try:
             requests.post(webhook_url, headers={"Content-Type": "application/json"}, data=json.dumps(message))
