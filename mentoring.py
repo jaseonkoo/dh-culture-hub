@@ -1,3 +1,11 @@
+import requests
+import json
+import pandas as pd
+import gspread
+import datetime
+import uuid
+import time
+from oauth2client.service_account import ServiceAccountCredentials
 from utils import *
 
 def run_mentoring():
@@ -86,6 +94,22 @@ def run_mentoring():
             st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
             return False
 
+    # ✨ 두레이 알림 발송용 함수 (차장님이 주신 URL이 적용되었습니다)
+    def send_dooray_noti(mentor_name, date, start, end, location):
+        webhook_url = "https://dhflour.dooray.com/services/2381698226825327324/4360453717122810883/xUa23WA3SJGNp2KDxVnZWA"
+        message = {
+            "botName": "조직문화 알리미",
+            "botIconImage": "https://cdn-icons-png.flaticon.com/512/1944/1944436.png",
+            "text": f"📢 **[{mentor_name} 멘토님]의 새로운 멘토링 일정이 오픈되었습니다!**\n\n"
+                    f"  • 📅 **일시:** {date} ({start} ~ {end})\n"
+                    f"  • 📍 **장소:** {location}\n\n"
+                    f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!"
+        }
+        try:
+            requests.post(webhook_url, headers={"Content-Type": "application/json"}, data=json.dumps(message))
+        except:
+            pass # 통신 오류가 발생해도 메인 프로그램은 멈추지 않게 보호합니다.
+
     mentor_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('mentors_data', [])]
 
     # 🚀 1단계: 역할별 메인 메뉴 (Main Tabs)
@@ -160,7 +184,7 @@ def run_mentoring():
                         if not m_n or not topic or not is_company_email(m_e): 
                             st.warning("⚠️ 정보를 정확히 입력해 주세요. (이메일은 @daehanfeed.co.kr 필수)")
                         else:
-                            with st.status("📡 매칭 처리 중...") as status:
+                            with st.status("📡 매칭 처리 중..."):
                                 new_res = {"id": str(uuid.uuid4())[:8], "mentor": selected_m, "mentee_name": m_n, "mentee_position": m_p, "mentee_team": m_t, "mentee_email": m_e, "date": sel_date, "start_time": ts, "end_time": te, "topic": topic, "location": loc, "status": "대기중"}
                                 st.session_state.reservations.append(new_res)
                                 save1 = safe_save("reservations", st.session_state.reservations)
@@ -196,7 +220,6 @@ def run_mentoring():
     # 💼 [메인 탭 2: 멘토 공간]
     # =========================================================
     with main_tab_mentor:
-        # 🚀 2단계: 멘토 메인 메뉴 안의 이중 탭 (서브 메뉴 이름 변경: 비밀번호 변경 -> 멘토 정보 변경)
         sub_tab_schedule, sub_tab_manage, sub_tab_info = st.tabs(["🗓️ 일정 등록 및 관리", "📋 신청 현황 및 예약 관리", "⚙️ 멘토 정보 변경"])
         
         # --- [서브 탭 1: 일정 관리] ---
@@ -225,6 +248,9 @@ def run_mentoring():
                             with st.status("📡 저장 중..."):
                                 st.session_state.available_slots.append({"mentor": m_log2, "date": dv, "start": sv, "end": ev, "location": lv})
                                 if safe_save("slots", st.session_state.available_slots):
+                                    # ✨ 일정이 구글 시트에 안전하게 등록되면 두레이 알림 발송!
+                                    send_dooray_noti(m_log2, dv, sv, ev, lv)
+                                    
                                     st.snow(); st.success("등록 완료!")
                                     time.sleep(1.5)
                                     fetch_latest_data(force=True)
