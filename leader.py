@@ -86,18 +86,21 @@ def run_leader_talk():
         except: st.error("⚠️ 데이터 저장 오류")
 
     # ✨ 두레이 대신 텔레그램 채널 알림 발송 함수로 교체되었습니다.
-    def send_telegram_noti(mentor_name, date, start, end, location):
-        # ✨ 코드가 털려도 안전하도록, 스트림릿 비밀 금고에서 토큰을 불러옵니다!
-        bot_token = st.secrets["telegram_bot_token"]
-        
-        # 📌 텔레그램 채널의 아이디 적용
-        chat_id = "@dhfeed_culture"
+    def send_telegram_noti(name, date, start, end, location):
+        # 🚨 여기에 절대 실제 토큰 번호를 직접 적지 마세요! (깃허브 경고 메일 방지)
+        # 스트림릿 비밀 금고에 숨겨둔 토큰을 안전하게 꺼내옵니다.
+        try:
+            bot_token = st.secrets["telegram_bot_token"]
+        except KeyError:
+            st.error("⚠️ 스트림릿 Secrets에 텔레그램 토큰이 설정되지 않았습니다.")
+            return
+            
+        chat_id = "@dhfeed_culture" # 📌 차장님의 실제 채널 아이디로 변경해 주세요
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
         end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
         
-        # 텔레그램 마크다운 지원 포맷으로 텍스트 구성
-        text = (f"📢 *[{leader_name} 리더님]*의 새로운 대화 일정이 오픈되었습니다!\n\n"
+        text = (f"📢 *[{name} 님]*의 새로운 일정이 오픈되었습니다!\n\n"
                 f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
                 f"  • 📍 장소 : {location}\n\n"
                 f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!\n"
