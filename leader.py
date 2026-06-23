@@ -92,7 +92,7 @@ def run_leader_talk():
             return
             
         # 📌 반드시 차장님이 찾으신 -100으로 시작하는 실제 숫자로 변경해 주세요!
-        chat_id = "-1004464463229" 
+        chat_id = "-4464463229" 
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
         end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
