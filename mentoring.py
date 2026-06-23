@@ -5,6 +5,7 @@ import gspread
 import datetime
 import uuid
 import time
+import streamlit as st
 from oauth2client.service_account import ServiceAccountCredentials
 from utils import *
 
@@ -91,8 +92,14 @@ def run_mentoring():
             return False
 
     def send_telegram_noti(mentor_name, date, start, end, location):
-        bot_token = "8515414995:AAEByC8hKOyxDUjPKJ9h6I2MbpxmT2EkgRs"
-        chat_id = "@dhfeed_culture"
+        try:
+            bot_token = st.secrets["telegram_bot_token"]
+        except KeyError:
+            st.error("⚠️ 스트림릿 Secrets에 텔레그램 토큰이 설정되지 않았습니다.")
+            return False
+            
+        # 📌 비공개 채널 규칙에 맞게 -100을 붙인 완벽한 숫자 아이디입니다!
+        chat_id = "-1004464463229" 
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
         end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
@@ -109,12 +116,18 @@ def run_mentoring():
             "text": text,
             "parse_mode": "Markdown"
         }
+        
         try:
-            requests.post(url, json=payload)
-        except:
-            pass
+            res = requests.post(url, json=payload)
+            if res.status_code != 200:
+                st.error(f"⚠️ 텔레그램 발송 실패 원인: {res.text}")
+                return False
+            return True
+        except Exception as e:
+            st.error(f"⚠️ 통신 에러: {str(e)}")
+            return False
 
-    # ✨ 수정 포인트: 오늘 이후의 일정이 있는 멘토만 필터링하여 드롭다운에 표시합니다.
+    # ✨ 오늘 이후의 일정이 있는 멘토만 필터링하여 드롭다운에 표시합니다.
     today_date_check = datetime.date.today()
     active_mentors = {s['mentor'] for s in st.session_state.get('available_slots', []) if s['date'] >= today_date_check}
     mentor_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('mentors_data', []) if m['name'] in active_mentors]
@@ -262,17 +275,23 @@ def run_mentoring():
                         if is_duplicate: st.error("🚫 중복된 시간이 존재합니다.")
                         elif sv >= ev: st.error("🚫 시간 설정 오류")
                         else:
+                            is_noti_success = False
                             with st.status("📡 저장 중..."):
                                 st.session_state.available_slots.append({"mentor": m_name_1, "date": dv, "start": sv, "end": ev, "location": lv})
                                 if safe_save("slots", st.session_state.available_slots):
                                     
                                     # ✨ 일정이 성공적으로 저장되면 텔레그램으로 알림을 보냅니다!
-                                    send_telegram_noti(m_name_1, dv, sv, ev, lv)
+                                    is_noti_success = send_telegram_noti(m_name_1, dv, sv, ev, lv)
                                     
-                                    st.snow(); st.success("등록 완료!")
-                                    time.sleep(1.5)
-                                    fetch_latest_data(force=True)
-                                    st.rerun()
+                            # 🚨 알림 전송에 성공했을 때만 화면을 새로고침 합니다.
+                            if is_noti_success:
+                                st.snow()
+                                st.success("등록 완료!")
+                                time.sleep(1.5)
+                                fetch_latest_data(force=True)
+                                st.rerun()
+                            else:
+                                st.warning("일정은 저장되었으나 텔레그램 알림 발송에 실패했습니다. 위의 에러 메시지를 확인해 주세요.")
                 
                     st.divider(); st.markdown(f"#### 🗑️ {m_name_1} 멘토님의 등록 일정")
                     my_slots = [x for x in st.session_state.get('available_slots', []) if x['mentor'] == m_name_1]
