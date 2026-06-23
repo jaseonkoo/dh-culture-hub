@@ -34,7 +34,6 @@ def run_leader_talk():
         client = gspread.authorize(creds)
         return client.open("대한사료_리더대화_DB")
 
-    # ✨ 이 마법의 한 줄을 추가해 주세요!
     @st.cache_data(ttl=60, show_spinner=False)
     def get_sheet_data_leader(sheet_name):
         try: doc = init_gspread_leader(); return doc.worksheet(sheet_name).get_all_records()
@@ -85,22 +84,19 @@ def run_leader_talk():
             fetch_latest_data_leader(force=True)
         except: st.error("⚠️ 데이터 저장 오류")
 
-    # ✨ 두레이 대신 텔레그램 채널 알림 발송 함수로 교체되었습니다.
     def send_telegram_noti(name, date, start, end, location):
-        # 🚨 여기에 절대 실제 토큰 번호를 직접 적지 마세요! (깃허브 경고 메일 방지)
-        # 스트림릿 비밀 금고에 숨겨둔 토큰을 안전하게 꺼내옵니다.
         try:
             bot_token = st.secrets["telegram_bot_token"]
         except KeyError:
             st.error("⚠️ 스트림릿 Secrets에 텔레그램 토큰이 설정되지 않았습니다.")
             return
             
-        chat_id = "@dhfeed_culture" # 📌 차장님의 실제 채널 아이디로 변경해 주세요
+        chat_id = "@dhfeed_culture" 
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
         end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
         
-        text = (f"📢 *[{name} 님]*의 새로운 일정이 오픈되었습니다!\n\n"
+        text = (f"📢 *[{name} 리더님]*의 새로운 대화 일정이 오픈되었습니다!\n\n"
                 f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
                 f"  • 📍 장소 : {location}\n\n"
                 f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!\n"
@@ -122,12 +118,8 @@ def run_leader_talk():
     active_leaders = {s['mentor'] for s in st.session_state.get('l_available_slots', []) if s['date'] >= today_date_check}
     leader_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('leaders_data', []) if m['name'] in active_leaders]
 
-    # 🚀 큰 방 3개 (역할별 메인 탭) 생성
     main_tab_mentee, main_tab_leader, main_tab_admin = st.tabs(["🙋‍♂️ 구성원 대화 신청", "💼 리더 공간", "👑 관리자 메뉴"])
 
-    # =========================================================
-    # 🙋‍♂️ [메인 탭 1: 구성원 대화 신청 공간]
-    # =========================================================
     with main_tab_mentee:
         st.subheader("🗓️ 리더와의 대화 신청")
         if st.button("🔄 최신 현황 불러오기", key="l_refresh_1"): fetch_latest_data_leader(force=True); st.rerun()
@@ -151,7 +143,6 @@ def run_leader_talk():
         
         st.markdown("#### 1️⃣ 대화할 리더 및 일정 선택")
         r_sel1, r_sel2 = st.columns(2)
-        # 구성원들은 활성화된 리더만 보여지는 선택창을 보게 됩니다.
         selected_m = r_sel1.selectbox("리더 선택", leader_names, key="l_s_t1")
         sel_date = r_sel2.date_input("날짜 선택", datetime.date.today() + datetime.timedelta(days=1), key="l_d_t1", format="YYYY/MM/DD")
             
@@ -210,13 +201,9 @@ def run_leader_talk():
                                     send_email(m_info['email'], mail_subject, mail_body)
                             st.balloons(); time.sleep(1); st.rerun()
 
-    # =========================================================
-    # 💼 [메인 탭 2: 리더 전용 공간]
-    # =========================================================
     with main_tab_leader:
         sub_tab_schedule, sub_tab_manage, sub_tab_info = st.tabs(["🗓️ 일정 등록 및 관리", "📋 신청 현황 관리", "⚙️ 리더 정보 변경"])
         
-        # --- [서브 탭 1: 일정 관리] ---
         with sub_tab_schedule:
             st.subheader("💼 나의 일정 관리")
             st.markdown("🔒 **리더 본인 인증**")
@@ -253,7 +240,7 @@ def run_leader_talk():
                                 st.session_state.l_available_slots.append({"mentor": l_name_1, "date": dv, "start": sv, "end": ev, "location": lv})
                                 safe_save_leader("slots", st.session_state.l_available_slots)
                                 
-                                # ✨ 일정이 구글 시트에 정상적으로 등록되면 텔레그램 알림 발송!
+                                # ✨ 드디어 텔레그램 함수가 정상적으로 호출됩니다!
                                 send_telegram_noti(l_name_1, dv, sv, ev, lv)
                                 
                             st.snow(); st.success("등록 완료!"); time.sleep(1); st.rerun()
@@ -266,7 +253,6 @@ def run_leader_talk():
                         if col_b.button("삭제", key=f"l_del_s_{i}"):
                             st.session_state.l_available_slots.remove(s); safe_save_leader("slots", st.session_state.l_available_slots); st.rerun()
 
-        # --- [서브 탭 2: 신청 현황 관리] ---
         with sub_tab_manage:
             st.subheader("📋 구성원 신청 현황 관리")
             st.markdown("🔒 **리더 본인 인증**")
@@ -311,7 +297,6 @@ def run_leader_talk():
                                     safe_save_leader("slots", st.session_state.l_available_slots)
                                     st.rerun()
 
-        # --- [서브 탭 3: 리더 정보 변경] ---
         with sub_tab_info:
             st.subheader("⚙️ 리더 정보 변경")
             st.info("💡 본인의 담당/전문분야, 인사말, 그리고 비밀번호를 편하게 직접 수정하실 수 있습니다.")
@@ -365,9 +350,6 @@ def run_leader_talk():
                                     time.sleep(1.5)
                                     st.rerun()
 
-    # =========================================================
-    # 👑 [메인 탭 3: 관리자 공간]
-    # =========================================================
     with main_tab_admin:
         st.subheader("👑 인사총무팀 전용 관리 시스템")
         if not st.session_state.l_admin_logged_in:
