@@ -86,9 +86,9 @@ def run_leader_talk():
         except: st.error("⚠️ 데이터 저장 오류")
 
     # ✨ 두레이 대신 텔레그램 채널 알림 발송 함수로 교체되었습니다.
-    def send_telegram_noti(leader_name, date, start, end, location):
-        # 📌 발급받으신 봇 API 토큰 적용
-        bot_token = "8515414995:AAEByC8hKOyxDUjPKJ9h6I2MbpxmT2EkgRs"
+    def send_telegram_noti(mentor_name, date, start, end, location):
+        # ✨ 코드가 털려도 안전하도록, 스트림릿 비밀 금고에서 토큰을 불러옵니다!
+        bot_token = st.secrets["telegram_bot_token"]
         
         # 📌 텔레그램 채널의 아이디 적용
         chat_id = "@dhfeed_culture"
