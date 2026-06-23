@@ -91,7 +91,8 @@ def run_leader_talk():
             st.error("⚠️ 스트림릿 Secrets에 텔레그램 토큰이 설정되지 않았습니다.")
             return
             
-        chat_id = "-1004464463229" 
+        # 📌 반드시 차장님이 찾으신 -100으로 시작하는 실제 숫자로 변경해 주세요!
+        chat_id = "-1001234567890" 
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
         end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
@@ -108,10 +109,16 @@ def run_leader_talk():
             "text": text,
             "parse_mode": "Markdown"
         }
+        
+        # 🚨 알림 발송 실패 시 원인을 화면에 띄워줍니다!
         try:
-            requests.post(url, json=payload)
-        except:
-            pass
+            res = requests.post(url, json=payload)
+            if res.status_code != 200:
+                import streamlit as st
+                st.error(f"⚠️ 텔레그램 발송 실패 원인: {res.text}")
+        except Exception as e:
+            import streamlit as st
+            st.error(f"⚠️ 통신 에러: {str(e)}")
 
     # ✨ 오늘 이후의 일정이 있는 리더만 필터링하여 드롭다운에 표시합니다.
     today_date_check = datetime.date.today()
