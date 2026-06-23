@@ -34,6 +34,8 @@ def run_leader_talk():
         client = gspread.authorize(creds)
         return client.open("대한사료_리더대화_DB")
 
+    # ✨ 이 마법의 한 줄을 추가해 주세요!
+    @st.cache_data(ttl=60, show_spinner=False)
     def get_sheet_data_leader(sheet_name):
         try: doc = init_gspread_leader(); return doc.worksheet(sheet_name).get_all_records()
         except: return []
