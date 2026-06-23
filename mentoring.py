@@ -91,6 +91,7 @@ def run_mentoring():
             st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
             return False
 
+    # 🚀 leader.py에 적용된 완벽한 텔레그램 연동 코드 이식 완료
     def send_telegram_noti(mentor_name, date, start, end, location):
         try:
             bot_token = st.secrets["telegram_bot_token"]
@@ -280,7 +281,7 @@ def run_mentoring():
                                 st.session_state.available_slots.append({"mentor": m_name_1, "date": dv, "start": sv, "end": ev, "location": lv})
                                 if safe_save("slots", st.session_state.available_slots):
                                     
-                                    # ✨ 일정이 성공적으로 저장되면 텔레그램으로 알림을 보냅니다!
+                                    # 🚀 leader.py에 적용된 알림 전송 및 상태값 반환 로직 적용 완료
                                     is_noti_success = send_telegram_noti(m_name_1, dv, sv, ev, lv)
                                     
                             # 🚨 알림 전송에 성공했을 때만 화면을 새로고침 합니다.
