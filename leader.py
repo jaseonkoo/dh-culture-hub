@@ -83,27 +83,39 @@ def run_leader_talk():
             fetch_latest_data_leader(force=True)
         except: st.error("⚠️ 데이터 저장 오류")
 
-    def send_dooray_noti(leader_name, date, start, end, location):
-        webhook_url = "https://dhflour.dooray.com/services/2381698226825327324/4360453717122810883/xUa23WA3SJGNp2KDxVnZWA"
+    # ✨ 두레이 대신 텔레그램 채널 알림 발송 함수로 교체되었습니다.
+    def send_telegram_noti(leader_name, date, start, end, location):
+        # 📌 발급받으신 봇 API 토큰 적용
+        bot_token = "8515414995:AAEByC8hKOyxDUjPKJ9h6I2MbpxmT2EkgRs"
+        
+        # 📌 텔레그램 채널의 아이디 적용
+        chat_id = "@dhfeed_culture"
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
         end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
         
-        message = {
-            "botName": "조직문화 알리미",
-            "botIconImage": "https://cdn-icons-png.flaticon.com/512/1944/1944436.png",
-            "text": f"📢 [{leader_name} 리더님]의 새로운 대화 일정이 오픈되었습니다!\n\n"
-                    f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
-                    f"  • 📍 장소 : {location}\n\n"
-                    f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!\n"
-                    f"      https://dhfeed-culture.streamlit.app"
+        # 텔레그램 마크다운 지원 포맷으로 텍스트 구성
+        text = (f"📢 *[{leader_name} 리더님]*의 새로운 대화 일정이 오픈되었습니다!\n\n"
+                f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
+                f"  • 📍 장소 : {location}\n\n"
+                f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!\n"
+                f"      (https://dhfeed-culture.streamlit.app)")
+                
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown"
         }
         try:
-            requests.post(webhook_url, headers={"Content-Type": "application/json"}, data=json.dumps(message))
+            requests.post(url, json=payload)
         except:
             pass
 
-    leader_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('leaders_data', [])]
+    # ✨ 오늘 이후의 일정이 있는 리더만 필터링하여 드롭다운에 표시합니다.
+    today_date_check = datetime.date.today()
+    active_leaders = {s['mentor'] for s in st.session_state.get('l_available_slots', []) if s['date'] >= today_date_check}
+    leader_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('leaders_data', []) if m['name'] in active_leaders]
 
     # 🚀 큰 방 3개 (역할별 메인 탭) 생성
     main_tab_mentee, main_tab_leader, main_tab_admin = st.tabs(["🙋‍♂️ 구성원 대화 신청", "💼 리더 공간", "👑 관리자 메뉴"])
@@ -134,7 +146,7 @@ def run_leader_talk():
         
         st.markdown("#### 1️⃣ 대화할 리더 및 일정 선택")
         r_sel1, r_sel2 = st.columns(2)
-        # 구성원들은 리더를 선택해야 하므로 여기는 기존처럼 드롭다운(selectbox)을 유지합니다.
+        # 구성원들은 활성화된 리더만 보여지는 선택창을 보게 됩니다.
         selected_m = r_sel1.selectbox("리더 선택", leader_names, key="l_s_t1")
         sel_date = r_sel2.date_input("날짜 선택", datetime.date.today() + datetime.timedelta(days=1), key="l_d_t1", format="YYYY/MM/DD")
             
@@ -235,7 +247,10 @@ def run_leader_talk():
                             with st.status("📡 저장 중..."):
                                 st.session_state.l_available_slots.append({"mentor": l_name_1, "date": dv, "start": sv, "end": ev, "location": lv})
                                 safe_save_leader("slots", st.session_state.l_available_slots)
-                                send_dooray_noti(l_name_1, dv, sv, ev, lv)
+                                
+                                # ✨ 일정이 구글 시트에 정상적으로 등록되면 텔레그램 알림 발송!
+                                send_telegram_noti(l_name_1, dv, sv, ev, lv)
+                                
                             st.snow(); st.success("등록 완료!"); time.sleep(1); st.rerun()
             
                     st.divider(); st.markdown(f"#### 🗑️ {l_name_1} 리더님의 등록 일정")
