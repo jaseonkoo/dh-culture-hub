@@ -90,23 +90,32 @@ def run_mentoring():
             st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
             return False
 
-    def send_dooray_noti(mentor_name, date, start, end, location):
-        webhook_url = "https://dhflour.dooray.com/services/2381698226825327324/4360453717122810883/xUa23WA3SJGNp2KDxVnZWA"
+    # ✨ 두레이 대신 텔레그램 채널 알림 발송 함수로 교체되었습니다.
+    def send_telegram_noti(mentor_name, date, start, end, location):
+        # 발급받으신 봇 API 토큰이 적용되었습니다.
+        bot_token = "8515414995:AAEByC8hKOyxDUjPKJ9h6I2MbpxmT2EkgRs"
+        
+        # 📌 텔레그램 채널의 아이디를 적어주세요 (예: @dhfeed_culture)
+        chat_id = "@여기에_채널_아이디를_넣어주세요"
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
         end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
         
-        message = {
-            "botName": "조직문화 알리미",
-            "botIconImage": "https://cdn-icons-png.flaticon.com/512/1944/1944436.png",
-            "text": f"📢 [{mentor_name} 멘토님]의 새로운 멘토링 일정이 오픈되었습니다!\n\n"
-                    f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
-                    f"  • 📍 장소 : {location}\n\n"
-                    f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!\n"
-                    f"      https://dhfeed-culture.streamlit.app"
+        # 텔레그램에서는 마크다운을 지원하여 글씨 굵기(*) 등의 표현이 가능합니다.
+        text = (f"📢 *[{mentor_name} 멘토님]*의 새로운 멘토링 일정이 오픈되었습니다!\n\n"
+                f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
+                f"  • 📍 장소 : {location}\n\n"
+                f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!\n"
+                f"      (https://dhfeed-culture.streamlit.app)")
+                
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "Markdown"
         }
         try:
-            requests.post(webhook_url, headers={"Content-Type": "application/json"}, data=json.dumps(message))
+            requests.post(url, json=payload)
         except:
             pass
 
@@ -258,7 +267,9 @@ def run_mentoring():
                             with st.status("📡 저장 중..."):
                                 st.session_state.available_slots.append({"mentor": m_name_1, "date": dv, "start": sv, "end": ev, "location": lv})
                                 if safe_save("slots", st.session_state.available_slots):
-                                    send_dooray_noti(m_name_1, dv, sv, ev, lv)
+                                    
+                                    # ✨ 일정이 성공적으로 저장되면 텔레그램으로 알림을 보냅니다!
+                                    send_telegram_noti(m_name_1, dv, sv, ev, lv)
                                     
                                     st.snow(); st.success("등록 완료!")
                                     time.sleep(1.5)
