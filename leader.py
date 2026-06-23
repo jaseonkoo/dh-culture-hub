@@ -91,7 +91,7 @@ def run_leader_talk():
             st.error("⚠️ 스트림릿 Secrets에 텔레그램 토큰이 설정되지 않았습니다.")
             return
             
-        chat_id = "@dhfeed_culture" 
+        chat_id = "-4464463229" 
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
         end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
