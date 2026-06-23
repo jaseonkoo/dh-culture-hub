@@ -90,18 +90,13 @@ def run_mentoring():
             st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
             return False
 
-    # ✨ 두레이 대신 텔레그램 채널 알림 발송 함수로 교체되었습니다.
     def send_telegram_noti(mentor_name, date, start, end, location):
-        # 발급받으신 봇 API 토큰이 적용되었습니다.
         bot_token = "8515414995:AAEByC8hKOyxDUjPKJ9h6I2MbpxmT2EkgRs"
-        
-        # 📌 텔레그램 채널의 아이디를 적어주세요 (예: @dhfeed_culture)
         chat_id = "@dhfeed_culture"
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
         end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
         
-        # 텔레그램에서는 마크다운을 지원하여 글씨 굵기(*) 등의 표현이 가능합니다.
         text = (f"📢 *[{mentor_name} 멘토님]*의 새로운 멘토링 일정이 오픈되었습니다!\n\n"
                 f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
                 f"  • 📍 장소 : {location}\n\n"
@@ -119,7 +114,10 @@ def run_mentoring():
         except:
             pass
 
-    mentor_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('mentors_data', [])]
+    # ✨ 수정 포인트: 오늘 이후의 일정이 있는 멘토만 필터링하여 드롭다운에 표시합니다.
+    today_date_check = datetime.date.today()
+    active_mentors = {s['mentor'] for s in st.session_state.get('available_slots', []) if s['date'] >= today_date_check}
+    mentor_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('mentors_data', []) if m['name'] in active_mentors]
 
     # 🚀 1단계: 역할별 메인 메뉴 (Main Tabs)
     main_tab_mentee, main_tab_mentor, main_tab_admin = st.tabs(["🙋‍♂️ 멘티 공간", "💼 멘토 공간", "👑 관리자 메뉴"])
