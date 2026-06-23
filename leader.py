@@ -110,14 +110,12 @@ def run_leader_talk():
             "parse_mode": "Markdown"
         }
         
-        # 🚨 알림 발송 실패 시 원인을 화면에 띄워줍니다!
+        # 🚨 충돌을 일으키던 지역 변수(import)를 제거하고 에러 알림만 유지했습니다.
         try:
             res = requests.post(url, json=payload)
             if res.status_code != 200:
-                import streamlit as st
                 st.error(f"⚠️ 텔레그램 발송 실패 원인: {res.text}")
         except Exception as e:
-            import streamlit as st
             st.error(f"⚠️ 통신 에러: {str(e)}")
 
     # ✨ 오늘 이후의 일정이 있는 리더만 필터링하여 드롭다운에 표시합니다.
