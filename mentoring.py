@@ -96,7 +96,7 @@ def run_mentoring():
         bot_token = "8515414995:AAEByC8hKOyxDUjPKJ9h6I2MbpxmT2EkgRs"
         
         # 📌 텔레그램 채널의 아이디를 적어주세요 (예: @dhfeed_culture)
-        chat_id = "@여기에_채널_아이디를_넣어주세요"
+        chat_id = "@dhfeed_culture"
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
         end_str = end.strftime('%H:%M') if hasattr(end, 'strftime') else str(end)[:5]
