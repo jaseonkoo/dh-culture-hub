@@ -129,27 +129,34 @@ def run_mentoring():
             my_calendar = get_dooray_calendar()
             if not my_calendar: return False
             
-            start_dt = datetime.datetime.combine(date_obj, start_time).strftime("%Y%m%dT%H%M%S")
-            end_dt = datetime.datetime.combine(date_obj, end_time).strftime("%Y%m%dT%H%M%S")
-            title = f"[예약가능] {name} 멘토님"
+            # 💡 [핵심 해결] TZID 에러를 막기 위해 KST(한국시간)를 UTC(표준시)로 9시간 빼서 변환합니다.
+            start_dt_kst = datetime.datetime.combine(date_obj, start_time)
+            end_dt_kst = datetime.datetime.combine(date_obj, end_time)
             
-            # ✨ [수정됨] CalDAV 필수값(UID, DTSTAMP) 추가
+            start_utc = (start_dt_kst - datetime.timedelta(hours=9)).strftime("%Y%m%dT%H%M%SZ")
+            end_utc = (end_dt_kst - datetime.timedelta(hours=9)).strftime("%Y%m%dT%H%M%SZ")
+            
+            title = f"[예약가능] {name} 멘토님"
             event_uid = str(uuid.uuid4())
             dtstamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
             
+            # 💡 CREATED, LAST-MODIFIED 필수 속성 추가 및 Z(UTC) 포맷 적용
             vcal_data = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Daehanfeed Culture Hub//EN
 BEGIN:VEVENT
 UID:{event_uid}
 DTSTAMP:{dtstamp}
+CREATED:{dtstamp}
+LAST-MODIFIED:{dtstamp}
 SUMMARY:{title}
-DTSTART;TZID=Asia/Seoul:{start_dt}
-DTEND;TZID=Asia/Seoul:{end_dt}
+DTSTART:{start_utc}
+DTEND:{end_utc}
 LOCATION:{location}
 DESCRIPTION:조직문화 플랫폼에서 신청 가능한 멘토링 일정입니다.
 END:VEVENT
 END:VCALENDAR"""
+
             my_calendar.save_event(vcal_data)
             st.success("✅ 캘린더 등록 함수 정상 작동 완료!")
             return True
@@ -163,12 +170,14 @@ END:VCALENDAR"""
             my_calendar = get_dooray_calendar()
             if not my_calendar: return False
             
-            # ✨ [수정됨] 400 Bad Request 에러 방지를 위해 전체 일정을 가져와서 파이썬으로 지우는 방식으로 변경
-            target_date_str = date_obj.strftime("%Y%m%d")
+            # UTC로 변환해서 저장했기 때문에 한국시간 기준 당일과 '하루 전' 날짜 문자열을 모두 찾습니다.
+            target_date_kst = date_obj.strftime("%Y%m%d")
+            target_date_minus_1 = (date_obj - datetime.timedelta(days=1)).strftime("%Y%m%d")
+            
             events = my_calendar.events()
             
             for event in events:
-                if name in event.data and target_date_str in event.data: 
+                if name in event.data and (target_date_kst in event.data or target_date_minus_1 in event.data): 
                     event.delete()
             return True
         except Exception as e:
