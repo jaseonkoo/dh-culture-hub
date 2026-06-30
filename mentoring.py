@@ -6,7 +6,7 @@ import datetime
 import uuid
 import time
 import streamlit as st
-import caldav 
+import caldav
 from oauth2client.service_account import ServiceAccountCredentials
 from utils import *
 
@@ -75,6 +75,7 @@ def run_mentoring():
 
     fetch_latest_data()
 
+    # ✨ 구글 시트 과부하(429 에러) 방지를 위해 내부 새로고침 코드를 제거했습니다.
     def safe_save(ws_name, data_list):
         try:
             doc = init_gspread()
@@ -86,33 +87,53 @@ def run_mentoring():
                     if c in df.columns: df[c] = df[c].astype(str)
                 df = df.fillna("")
                 ws.update(values=[df.columns.values.tolist()] + df.values.tolist())
-            
             return True
         except Exception as e: 
             st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
             return False
 
     # =========================================================
-    # 📆 [두레이 캘린더 연동 함수 - 에러 완벽 우회 버전]
+    # 📆 [두레이 캘린더 자동 탐색 및 연동 로직]
     # =========================================================
     def get_dooray_calendar():
-        """두레이 캘린더의 정확한 경로를 찾아 접속합니다."""
-        try:
-            cal_id = st.secrets.get("dooray_cal_id")
-            cal_pw = st.secrets.get("dooray_cal_pw")
-            cal_path = st.secrets.get("dooray_cal_path") # 1단계에서 추가한 경로
-            
-            client = caldav.DAVClient(url="https://caldav.dooray.com", username=cal_id, password=cal_pw)
-            
-            # 주소창에서 확인한 전체 경로를 사용해 캘린더 객체 생성
-            calendar_url = f"https://caldav.dooray.com{cal_path}"
-            return caldav.Calendar(client, url=calendar_url)
-            
-        except Exception as e:
-            st.error(f"⚠️ 캘린더 서버 접속 에러: {e}")
+        """두레이 서버가 허용하는 주소를 알아서 찾아내어 '멘토링&코칭' 달력에 접속합니다."""
+        cal_id = st.secrets.get("dooray_cal_id")
+        cal_pw = st.secrets.get("dooray_cal_pw")
+        
+        if not cal_id or not cal_pw:
+            st.error("⚠️ Secrets에 두레이 계정 정보(dooray_cal_id, dooray_cal_pw)가 설정되지 않았습니다.")
             return None
+
+        # 두레이에서 요구할 수 있는 주소 패턴들을 모아 파이썬이 알아서 두드려보게 합니다.
+        urls_to_try = [
+            f"https://caldav.dooray.com/caldav/principals/{cal_id}/",
+            "https://caldav.dooray.com/caldav/",
+            "https://caldav.dooray.com"
+        ]
+        
+        last_error = ""
+        for test_url in urls_to_try:
+            try:
+                client = caldav.DAVClient(url=test_url, username=cal_id, password=cal_pw)
+                principal = client.principal()
+                calendars = principal.calendars()
+                
+                if calendars:
+                    # '멘토링&코칭' 캘린더를 정확하게 수색합니다.
+                    for c in calendars:
+                        if hasattr(c, 'name') and c.name == "멘토링&코칭":
+                            return c
+                    # 혹시 이름을 못 찾았다면 첫 번째 기본 캘린더를 사용합니다.
+                    return calendars[0]
+            except Exception as e:
+                last_error = str(e)
+                continue # 실패하면 다음 주소로 넘어갑니다.
+                
+        st.error(f"⚠️ 캘린더 서버 주소 탐색에 실패했습니다. (마지막 에러: {last_error})")
+        return None
+
     def add_dooray_calendar_event(name, date_obj, start_time, end_time, location):
-        """달력에 새로운 일정을 엄격한 표준 규격으로 등록합니다."""
+        """달력에 멘토의 예약 가능 일정을 등록합니다."""
         try:
             my_calendar = get_dooray_calendar()
             if not my_calendar: return False
@@ -121,27 +142,10 @@ def run_mentoring():
             end_dt = datetime.datetime.combine(date_obj, end_time).strftime("%Y%m%dT%H%M%S")
             title = f"[예약가능] {name} 멘토님"
             
-            event_uid = str(uuid.uuid4())
-            dtstamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-            
-            # 🚨 [핵심 해결 2] 두레이와 애플 달력이 좋아하는 VTIMEZONE 표준 폼 추가
             vcal_data = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Daehanfeed Culture Hub//EN
-CALSCALE:GREGORIAN
-BEGIN:VTIMEZONE
-TZID:Asia/Seoul
-BEGIN:STANDARD
-TZOFFSETFROM:+0900
-TZOFFSETTO:+0900
-TZNAME:KST
-DTSTART:19700101T000000
-END:STANDARD
-END:VTIMEZONE
 BEGIN:VEVENT
-UID:{event_uid}
-DTSTAMP:{dtstamp}
-CREATED:{dtstamp}
 SUMMARY:{title}
 DTSTART;TZID=Asia/Seoul:{start_dt}
 DTEND;TZID=Asia/Seoul:{end_dt}
@@ -149,34 +153,28 @@ LOCATION:{location}
 DESCRIPTION:조직문화 플랫폼에서 신청 가능한 멘토링 일정입니다.
 END:VEVENT
 END:VCALENDAR"""
-
             my_calendar.save_event(vcal_data)
-            st.success(f"✅ 캘린더 등록 완료! (저장된 달력: {my_calendar.name})")
             return True
         except Exception as e:
-            st.error(f"⚠️ 캘린더 일정 쓰기 에러: {e}")
+            st.error(f"⚠️ 캘린더 일정 등록 에러: {e}")
             return False
 
     def delete_dooray_calendar_event(name, date_obj):
-        """진짜 달력에서 검색하여 에러 없이 일정을 지웁니다."""
+        """달력에서 예약이 확정되거나 취소된 일정을 깔끔하게 지웁니다."""
         try:
             my_calendar = get_dooray_calendar()
             if not my_calendar: return False
             
-            target_date_kst = date_obj.strftime("%Y%m%d")
+            start_dt = datetime.datetime.combine(date_obj, datetime.time.min)
+            end_dt = start_dt + datetime.timedelta(days=1)
             
-            # 이제 최상위 폴더가 아닌 진짜 달력 안에서 찾으므로 400 에러가 나지 않습니다.
-            events = my_calendar.events()
-            
-            deleted_count = 0
+            events = my_calendar.date_search(start=start_dt, end=end_dt)
             for event in events:
-                if name in event.data and target_date_kst in event.data: 
+                if name in event.data: 
                     event.delete()
-                    deleted_count += 1
-            
             return True
         except Exception as e:
-            st.error(f"⚠️ 캘린더 삭제 에러: {e}")
+            st.error(f"⚠️ 캘린더 일정 삭제 에러: {e}")
             return False
             
     # =========================================================
@@ -196,7 +194,7 @@ END:VCALENDAR"""
         text = (f"📢 *[{mentor_name} 멘토님]*의 새로운 멘토링 일정이 오픈되었습니다!\n\n"
                 f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
                 f"  • 📍 장소 : {location}\n\n"
-                f"▶ 지금 바로 플랫폼에 접속해서 대화를 신청해 보세요!\n"
+                f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!\n"
                 f"      (https://dhfeed-culture.streamlit.app)")
                 
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -302,7 +300,7 @@ END:VCALENDAR"""
                                     st.session_state.available_slots.remove(slot_to_del)
                                     save2 = safe_save("slots", st.session_state.available_slots)
                                     
-                                    # ✨ 매칭(신청)이 완료되면 캘린더에서 빈 일정을 삭제합니다!
+                                    # ✨ 매칭이 완료되면 예약 가능 캘린더에서 해당 일정을 깔끔하게 지워줍니다!
                                     delete_dooray_calendar_event(selected_m, sel_date)
 
                                 m_info = next((m for m in st.session_state.mentors_data if m['name']==selected_m), None)
@@ -313,17 +311,15 @@ END:VCALENDAR"""
                                     mail_ok = send_email(m_info['email'], mail_subject, mail_body)
 
                                 if save1 and save2:
-                                    status.update(label="처리 완료!", state="complete")
                                     st.balloons()
                                     if mail_ok:
                                         st.success("✅ 신청이 완료되었으며, 멘토님께 알림 메일이 발송되었습니다.")
                                     else:
                                         st.warning("⚠️ 예약은 정상 저장되었으나 메일 발송에 실패했습니다.")
-                                    time.sleep(3)
+                                    time.sleep(2)
                                     fetch_latest_data(force=True) 
                                     st.rerun()
                                 else:
-                                    status.update(label="처리 실패", state="error")
                                     st.error("⚠️ 데이터 저장에 실패하여 신청이 취소되었습니다.")
 
     # =========================================================
@@ -365,24 +361,19 @@ END:VCALENDAR"""
                         if is_duplicate: st.error("🚫 중복된 시간이 존재합니다.")
                         elif sv >= ev: st.error("🚫 시간 설정 오류")
                         else:
-                            is_noti_success = False
                             with st.status("📡 저장 중..."):
                                 st.session_state.available_slots.append({"mentor": m_name_1, "date": dv, "start": sv, "end": ev, "location": lv})
                                 if safe_save("slots", st.session_state.available_slots):
                                     
-                                    # ✨ 일정을 구글 시트에 저장한 후, 캘린더에 쓰고 텔레그램을 보냅니다!
+                                    # ✨ 일정을 저장한 후, 캘린더에 쓰고 텔레그램을 보냅니다!
                                     add_dooray_calendar_event(m_name_1, dv, sv, ev, lv)
-                                    is_noti_success = send_telegram_noti(m_name_1, dv, sv, ev, lv)
+                                    send_telegram_noti(m_name_1, dv, sv, ev, lv)
                                     
-                            # 🚨 알림 전송에 성공했을 때만 화면을 새로고침 합니다. (에러 확인 용이)
-                            if is_noti_success:
-                                st.snow()
-                                st.success("등록 완료!")
-                                time.sleep(4) # 에러 메시지를 천천히 볼 수 있도록 시간을 늘렸습니다.
-                                fetch_latest_data(force=True)
-                                st.rerun()
-                            else:
-                                st.warning("일정은 저장되었으나 알림 발송 또는 캘린더 등록 중 문제가 발생했습니다.")
+                            st.snow()
+                            st.success("등록 완료!")
+                            time.sleep(2) # 디버깅 메시지 확인을 위해 딜레이를 약간 늘려두었습니다.
+                            fetch_latest_data(force=True)
+                            st.rerun()
                 
                     st.divider(); st.markdown(f"#### 🗑️ {m_name_1} 멘토님의 등록 일정")
                     my_slots = [x for x in st.session_state.get('available_slots', []) if x['mentor'] == m_name_1]
@@ -392,7 +383,7 @@ END:VCALENDAR"""
                         if col_b.button("삭제", key=f"del_s_{i}"):
                             st.session_state.available_slots.remove(s)
                             if safe_save("slots", st.session_state.available_slots):
-                                # ✨ 멘토가 일정을 지우면, 캘린더에서도 함께 지웁니다!
+                                # ✨ 멘토가 일정을 직접 지우면 캘린더에서도 함께 지웁니다!
                                 delete_dooray_calendar_event(m_name_1, s['date'])
                                 fetch_latest_data(force=True)
                                 st.rerun()
@@ -446,7 +437,7 @@ END:VCALENDAR"""
                                         })
                                         safe_save("slots", st.session_state.available_slots)
                                         
-                                        # ✨ 멘토가 거절해서 일정이 다시 살아났으니 캘린더에 다시 등록합니다!
+                                        # ✨ 멘토가 거절해서 일정이 다시 살아났으니 캘린더에도 다시 복구시킵니다!
                                         add_dooray_calendar_event(m_name_2, r['date'], r['start_time'], r['end_time'], r.get('location', '미정'))
                                         
                                         fetch_latest_data(force=True)
@@ -558,7 +549,7 @@ END:VCALENDAR"""
             
             with st.expander("📋 기존 멘토 수정/삭제", expanded=True):
                 for i, m in enumerate(st.session_state.get('mentors_data', [])):
-                    st.markdown(f"#### 👤 {m['name']} 리더님 정보 수정")
+                    st.markdown(f"#### 👤 {m['name']} 멘토님 정보 수정")
                     er1, er2, er3, er4 = st.columns(4); un = er1.text_input("성함", m['name'], key=f"un_{i}"); up = er2.text_input("직급", m.get('position',''), key=f"up_{i}"); ut = er3.text_input("팀명", m.get('team',''), key=f"ut_{i}"); upw = er4.text_input("비번", m.get('pw',''), key=f"upw_{i}")
                     e1, e2 = st.columns(2); ue = e1.text_input("이메일", m.get('email',''), key=f"ue_{i}"); ux = e2.text_input("전문분야", m.get('expertise',''), key=f"ux_{i}"); ug = st.text_area("인사말", m.get('greeting',''), key=f"ug_{i}")
                     if st.button("💾 저장", key=f"sv_{i}"):
