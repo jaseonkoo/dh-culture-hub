@@ -2,3 +2,4 @@ streamlit
 pandas
 gspread
 oauth2client
+caldav==1.3.6
