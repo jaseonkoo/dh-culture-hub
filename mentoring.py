@@ -86,7 +86,10 @@ def run_mentoring():
                     if c in df.columns: df[c] = df[c].astype(str)
                 df = df.fillna("")
                 ws.update(values=[df.columns.values.tolist()] + df.values.tolist())
-            fetch_latest_data(force=True) 
+            
+            # 🚨 429 에러의 원흉이었던 자동 새로고침(fetch_latest_data)을 여기서 뺐습니다!
+            # 어차피 버튼 맨 마지막(st.rerun 직전)에 한 번만 새로고침 하도록 세팅되어 있습니다.
+            
             return True
         except Exception as e: 
             st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
