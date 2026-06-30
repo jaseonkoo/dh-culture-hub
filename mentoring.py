@@ -96,53 +96,21 @@ def run_mentoring():
     # 📆 [두레이 캘린더 연동 함수 - 에러 완벽 우회 버전]
     # =========================================================
     def get_dooray_calendar():
-        """두레이 서버에서 400 에러를 뱉는 루트 폴더를 무시하고 '진짜 달력'만 찾아옵니다."""
+        """두레이 캘린더의 정확한 경로를 찾아 접속합니다."""
         try:
             cal_id = st.secrets.get("dooray_cal_id")
             cal_pw = st.secrets.get("dooray_cal_pw")
-            
-            if not cal_id or not cal_pw: 
-                st.error("⚠️ Secrets에서 인증 정보를 찾을 수 없습니다.")
-                return None
+            cal_path = st.secrets.get("dooray_cal_path") # 1단계에서 추가한 경로
             
             client = caldav.DAVClient(url="https://caldav.dooray.com", username=cal_id, password=cal_pw)
-            principal = client.principal()
-            calendars = principal.calendars()
             
-            real_calendars = {}
-            for c in calendars:
-                try:
-                    # 🚨 [핵심 해결] URL이 최상위 폴더(/caldav, /caldav/)인 경우 아예 무시합니다.
-                    if str(c.url).strip('/').endswith('caldav'):
-                        continue
-                    
-                    # 🚨 [핵심 해결] 이름을 조회할 때 400 에러가 나면 해당 폴더는 버리고(pass) 다음으로 넘어갑니다.
-                    cal_name = c.name
-                    if cal_name:
-                        real_calendars[cal_name] = c
-                except Exception:
-                    pass # 에러가 나는 가짜 캘린더는 무시합니다.
-            
-            if not real_calendars:
-                st.error("⚠️ 접근 가능한 실제 캘린더를 찾을 수 없습니다.")
-                return None
-            
-            # 화면에 현재 존재하는 진짜 달력 이름들을 띄워서 보여줍니다.
-            st.info(f"💡 [디버깅] 에러 없이 접근 성공한 캘린더 목록: {list(real_calendars.keys())}")
-            
-            # 1순위: '멘토링&코칭' 이라는 이름 찾기
-            if "멘토링&코칭" in real_calendars:
-                return real_calendars["멘토링&코칭"]
-                    
-            # 2순위: 못 찾으면 발견된 첫 번째 진짜 캘린더에 강제 저장
-            fallback_name = list(real_calendars.keys())[0]
-            st.warning(f"⚠️ '멘토링&코칭' 달력을 못찾아 '{fallback_name}' 달력에 대체 저장합니다.")
-            return real_calendars[fallback_name]
+            # 주소창에서 확인한 전체 경로를 사용해 캘린더 객체 생성
+            calendar_url = f"https://caldav.dooray.com{cal_path}"
+            return caldav.Calendar(client, url=calendar_url)
             
         except Exception as e:
             st.error(f"⚠️ 캘린더 서버 접속 에러: {e}")
             return None
-
     def add_dooray_calendar_event(name, date_obj, start_time, end_time, location):
         """달력에 새로운 일정을 엄격한 표준 규격으로 등록합니다."""
         try:
