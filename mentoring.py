@@ -87,9 +87,6 @@ def run_mentoring():
                 df = df.fillna("")
                 ws.update(values=[df.columns.values.tolist()] + df.values.tolist())
             
-            # 🚨 429 에러의 원흉이었던 자동 새로고침(fetch_latest_data)을 여기서 뺐습니다!
-            # 어차피 버튼 맨 마지막(st.rerun 직전)에 한 번만 새로고침 하도록 세팅되어 있습니다.
-            
             return True
         except Exception as e: 
             st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
@@ -112,11 +109,9 @@ def run_mentoring():
             principal = client.principal()
             calendars = principal.calendars()
             
-            # 🚨 캘린더 연동이 왜 안되는지 확인하기 위해 불러온 캘린더 목록을 화면에 띄웁니다!
             cal_names = [c.name for c in calendars if hasattr(c, 'name')]
             st.info(f"💡 현재 발견된 구자선 차장님의 캘린더 목록: {cal_names}")
             
-            # "멘토링&코칭" 이라는 이름의 캘린더를 정확히 찾습니다.
             for c in calendars:
                 if hasattr(c, 'name') and c.name == "멘토링&코칭":
                     return c
@@ -138,10 +133,16 @@ def run_mentoring():
             end_dt = datetime.datetime.combine(date_obj, end_time).strftime("%Y%m%dT%H%M%S")
             title = f"[예약가능] {name} 멘토님"
             
+            # ✨ [수정됨] CalDAV 필수값(UID, DTSTAMP) 추가
+            event_uid = str(uuid.uuid4())
+            dtstamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+            
             vcal_data = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Daehanfeed Culture Hub//EN
 BEGIN:VEVENT
+UID:{event_uid}
+DTSTAMP:{dtstamp}
 SUMMARY:{title}
 DTSTART;TZID=Asia/Seoul:{start_dt}
 DTEND;TZID=Asia/Seoul:{end_dt}
@@ -162,12 +163,12 @@ END:VCALENDAR"""
             my_calendar = get_dooray_calendar()
             if not my_calendar: return False
             
-            start_dt = datetime.datetime.combine(date_obj, datetime.time.min)
-            end_dt = start_dt + datetime.timedelta(days=1)
+            # ✨ [수정됨] 400 Bad Request 에러 방지를 위해 전체 일정을 가져와서 파이썬으로 지우는 방식으로 변경
+            target_date_str = date_obj.strftime("%Y%m%d")
+            events = my_calendar.events()
             
-            events = my_calendar.date_search(start=start_dt, end=end_dt)
             for event in events:
-                if name in event.data: 
+                if name in event.data and target_date_str in event.data: 
                     event.delete()
             return True
         except Exception as e:
