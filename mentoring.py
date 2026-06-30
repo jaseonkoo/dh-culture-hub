@@ -93,92 +93,115 @@ def run_mentoring():
             return False
 
     # =========================================================
-    # 📆 [두레이 캘린더 연동 함수 - 디버깅 버전]
+    # 📆 [두레이 캘린더 연동 함수 - 완벽 수정본]
     # =========================================================
     def get_dooray_calendar():
-        """두레이 캘린더 서버에 접속하여 '멘토링&코칭' 달력을 찾아옵니다."""
+        """두레이 서버에서 루트 폴더를 제외하고 '진짜 달력'만 찾아옵니다."""
         try:
             cal_id = st.secrets.get("dooray_cal_id")
             cal_pw = st.secrets.get("dooray_cal_pw")
             
             if not cal_id or not cal_pw: 
-                st.error("⚠️ Secrets에서 dooray_cal_id 또는 dooray_cal_pw를 찾을 수 없습니다.")
                 return None
             
             client = caldav.DAVClient(url="https://caldav.dooray.com", username=cal_id, password=cal_pw)
             principal = client.principal()
             calendars = principal.calendars()
             
-            cal_names = [c.name for c in calendars if hasattr(c, 'name')]
-            st.info(f"💡 현재 발견된 구자선 차장님의 캘린더 목록: {cal_names}")
-            
+            # 🚨 [핵심 해결 1] url이 /caldav/ 로 끝나는 가짜(최상위 폴더) 캘린더 제외
+            real_calendars = []
             for c in calendars:
-                if hasattr(c, 'name') and c.name == "멘토링&코칭":
+                url_str = str(c.url)
+                if url_str.endswith('/caldav') or url_str.endswith('/caldav/'):
+                    continue
+                if hasattr(c, 'name') and c.name:
+                    real_calendars.append(c)
+            
+            if not real_calendars:
+                st.error("⚠️ 실제 캘린더를 찾을 수 없습니다.")
+                return None
+            
+            # 화면에 현재 존재하는 진짜 달력 이름들을 띄워서 보여줍니다.
+            cal_names = [c.name for c in real_calendars]
+            st.info(f"💡 [디버깅] 두레이에서 찾은 진짜 캘린더 목록: {cal_names}")
+            
+            # 1순위: '멘토링&코칭' 이라는 이름 찾기
+            for c in real_calendars:
+                if c.name == "멘토링&코칭":
                     return c
                     
-            st.warning("⚠️ '멘토링&코칭' 이라는 이름의 캘린더를 찾지 못해 기본 캘린더에 저장합니다.")
-            return calendars[0] if calendars else None
+            # 2순위: 못 찾으면 발견된 첫 번째 진짜 캘린더에 강제 저장
+            fallback_cal = real_calendars[0]
+            st.warning(f"⚠️ '멘토링&코칭' 달력을 못찾아 '{fallback_cal.name}' 달력에 대체 저장합니다.")
+            return fallback_cal
             
         except Exception as e:
             st.error(f"⚠️ 캘린더 서버 접속 에러: {e}")
             return None
 
     def add_dooray_calendar_event(name, date_obj, start_time, end_time, location):
-        """달력에 새로운 일정을 등록합니다."""
+        """달력에 새로운 일정을 엄격한 표준 규격으로 등록합니다."""
         try:
             my_calendar = get_dooray_calendar()
             if not my_calendar: return False
             
-            # 💡 [핵심 해결] TZID 에러를 막기 위해 KST(한국시간)를 UTC(표준시)로 9시간 빼서 변환합니다.
-            start_dt_kst = datetime.datetime.combine(date_obj, start_time)
-            end_dt_kst = datetime.datetime.combine(date_obj, end_time)
-            
-            start_utc = (start_dt_kst - datetime.timedelta(hours=9)).strftime("%Y%m%dT%H%M%SZ")
-            end_utc = (end_dt_kst - datetime.timedelta(hours=9)).strftime("%Y%m%dT%H%M%SZ")
-            
+            start_dt = datetime.datetime.combine(date_obj, start_time).strftime("%Y%m%dT%H%M%S")
+            end_dt = datetime.datetime.combine(date_obj, end_time).strftime("%Y%m%dT%H%M%S")
             title = f"[예약가능] {name} 멘토님"
+            
             event_uid = str(uuid.uuid4())
             dtstamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
             
-            # 💡 CREATED, LAST-MODIFIED 필수 속성 추가 및 Z(UTC) 포맷 적용
+            # 🚨 [핵심 해결 2] 두레이와 애플 달력이 좋아하는 VTIMEZONE 표준 폼 추가
             vcal_data = f"""BEGIN:VCALENDAR
 VERSION:2.0
 PRODID:-//Daehanfeed Culture Hub//EN
+CALSCALE:GREGORIAN
+BEGIN:VTIMEZONE
+TZID:Asia/Seoul
+BEGIN:STANDARD
+TZOFFSETFROM:+0900
+TZOFFSETTO:+0900
+TZNAME:KST
+DTSTART:19700101T000000
+END:STANDARD
+END:VTIMEZONE
 BEGIN:VEVENT
 UID:{event_uid}
 DTSTAMP:{dtstamp}
 CREATED:{dtstamp}
-LAST-MODIFIED:{dtstamp}
 SUMMARY:{title}
-DTSTART:{start_utc}
-DTEND:{end_utc}
+DTSTART;TZID=Asia/Seoul:{start_dt}
+DTEND;TZID=Asia/Seoul:{end_dt}
 LOCATION:{location}
 DESCRIPTION:조직문화 플랫폼에서 신청 가능한 멘토링 일정입니다.
 END:VEVENT
 END:VCALENDAR"""
 
             my_calendar.save_event(vcal_data)
-            st.success("✅ 캘린더 등록 함수 정상 작동 완료!")
+            st.success(f"✅ 캘린더 등록 완료! (저장된 달력: {my_calendar.name})")
             return True
         except Exception as e:
             st.error(f"⚠️ 캘린더 일정 쓰기 에러: {e}")
             return False
 
     def delete_dooray_calendar_event(name, date_obj):
-        """달력에서 누군가 신청했거나 삭제된 일정을 지웁니다."""
+        """진짜 달력에서 검색하여 에러 없이 일정을 지웁니다."""
         try:
             my_calendar = get_dooray_calendar()
             if not my_calendar: return False
             
-            # UTC로 변환해서 저장했기 때문에 한국시간 기준 당일과 '하루 전' 날짜 문자열을 모두 찾습니다.
             target_date_kst = date_obj.strftime("%Y%m%d")
-            target_date_minus_1 = (date_obj - datetime.timedelta(days=1)).strftime("%Y%m%d")
             
+            # 이제 최상위 폴더가 아닌 진짜 달력 안에서 찾으므로 400 에러가 나지 않습니다.
             events = my_calendar.events()
             
+            deleted_count = 0
             for event in events:
-                if name in event.data and (target_date_kst in event.data or target_date_minus_1 in event.data): 
+                if name in event.data and target_date_kst in event.data: 
                     event.delete()
+                    deleted_count += 1
+            
             return True
         except Exception as e:
             st.error(f"⚠️ 캘린더 삭제 에러: {e}")
