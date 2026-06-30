@@ -6,7 +6,7 @@ import datetime
 import uuid
 import time
 import streamlit as st
-import caldav # ✨ 캘린더 연동을 위한 라이브러리 추가
+import caldav 
 from oauth2client.service_account import ServiceAccountCredentials
 from utils import *
 
@@ -93,25 +93,36 @@ def run_mentoring():
             return False
 
     # =========================================================
-    # 📆 [두레이 캘린더 연동 함수 모음]
+    # 📆 [두레이 캘린더 연동 함수 - 디버깅 버전]
     # =========================================================
     def get_dooray_calendar():
         """두레이 캘린더 서버에 접속하여 '멘토링&코칭' 달력을 찾아옵니다."""
         try:
             cal_id = st.secrets.get("dooray_cal_id")
             cal_pw = st.secrets.get("dooray_cal_pw")
-            if not cal_id or not cal_pw: return None
+            
+            if not cal_id or not cal_pw: 
+                st.error("⚠️ Secrets에서 dooray_cal_id 또는 dooray_cal_pw를 찾을 수 없습니다.")
+                return None
             
             client = caldav.DAVClient(url="https://caldav.dooray.com", username=cal_id, password=cal_pw)
             principal = client.principal()
             calendars = principal.calendars()
             
+            # 🚨 캘린더 연동이 왜 안되는지 확인하기 위해 불러온 캘린더 목록을 화면에 띄웁니다!
+            cal_names = [c.name for c in calendars if hasattr(c, 'name')]
+            st.info(f"💡 현재 발견된 구자선 차장님의 캘린더 목록: {cal_names}")
+            
             # "멘토링&코칭" 이라는 이름의 캘린더를 정확히 찾습니다.
             for c in calendars:
-                if c.name == "멘토링&코칭":
+                if hasattr(c, 'name') and c.name == "멘토링&코칭":
                     return c
+                    
+            st.warning("⚠️ '멘토링&코칭' 이라는 이름의 캘린더를 찾지 못해 기본 캘린더에 저장합니다.")
             return calendars[0] if calendars else None
-        except:
+            
+        except Exception as e:
+            st.error(f"⚠️ 캘린더 서버 접속 에러: {e}")
             return None
 
     def add_dooray_calendar_event(name, date_obj, start_time, end_time, location):
@@ -136,9 +147,10 @@ DESCRIPTION:조직문화 플랫폼에서 신청 가능한 멘토링 일정입니
 END:VEVENT
 END:VCALENDAR"""
             my_calendar.save_event(vcal_data)
+            st.success("✅ 캘린더 등록 함수 정상 작동 완료!")
             return True
         except Exception as e:
-            st.error(f"⚠️ 캘린더 등록 에러: {e}")
+            st.error(f"⚠️ 캘린더 일정 쓰기 에러: {e}")
             return False
 
     def delete_dooray_calendar_event(name, date_obj):
@@ -147,13 +159,12 @@ END:VCALENDAR"""
             my_calendar = get_dooray_calendar()
             if not my_calendar: return False
             
-            # 해당 날짜의 일정을 모두 가져와서 이름이 포함된 일정을 지웁니다.
             start_dt = datetime.datetime.combine(date_obj, datetime.time.min)
             end_dt = start_dt + datetime.timedelta(days=1)
             
             events = my_calendar.date_search(start=start_dt, end=end_dt)
             for event in events:
-                if name in event.data: # 해당 멘토 이름이 들어간 일정 지우기
+                if name in event.data: 
                     event.delete()
             return True
         except Exception as e:
@@ -355,14 +366,15 @@ END:VCALENDAR"""
                                     add_dooray_calendar_event(m_name_1, dv, sv, ev, lv)
                                     is_noti_success = send_telegram_noti(m_name_1, dv, sv, ev, lv)
                                     
+                            # 🚨 알림 전송에 성공했을 때만 화면을 새로고침 합니다. (에러 확인 용이)
                             if is_noti_success:
                                 st.snow()
                                 st.success("등록 완료!")
-                                time.sleep(1.5)
+                                time.sleep(4) # 에러 메시지를 천천히 볼 수 있도록 시간을 늘렸습니다.
                                 fetch_latest_data(force=True)
                                 st.rerun()
                             else:
-                                st.warning("일정은 저장되었으나 텔레그램 알림 발송에 실패했습니다.")
+                                st.warning("일정은 저장되었으나 알림 발송 또는 캘린더 등록 중 문제가 발생했습니다.")
                 
                     st.divider(); st.markdown(f"#### 🗑️ {m_name_1} 멘토님의 등록 일정")
                     my_slots = [x for x in st.session_state.get('available_slots', []) if x['mentor'] == m_name_1]
