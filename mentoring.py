@@ -6,6 +6,7 @@ import datetime
 import uuid
 import time
 import streamlit as st
+import caldav # ✨ 캘린더 연동을 위한 라이브러리 추가
 from oauth2client.service_account import ServiceAccountCredentials
 from utils import *
 
@@ -91,7 +92,76 @@ def run_mentoring():
             st.error(f"⚠️ 구글 시트 저장 오류 ({ws_name}): {e}")
             return False
 
-    # 🚀 leader.py에 적용된 완벽한 텔레그램 연동 코드 이식 완료
+    # =========================================================
+    # 📆 [두레이 캘린더 연동 함수 모음]
+    # =========================================================
+    def get_dooray_calendar():
+        """두레이 캘린더 서버에 접속하여 '멘토링&코칭' 달력을 찾아옵니다."""
+        try:
+            cal_id = st.secrets.get("dooray_cal_id")
+            cal_pw = st.secrets.get("dooray_cal_pw")
+            if not cal_id or not cal_pw: return None
+            
+            client = caldav.DAVClient(url="https://caldav.dooray.com", username=cal_id, password=cal_pw)
+            principal = client.principal()
+            calendars = principal.calendars()
+            
+            # "멘토링&코칭" 이라는 이름의 캘린더를 정확히 찾습니다.
+            for c in calendars:
+                if c.name == "멘토링&코칭":
+                    return c
+            return calendars[0] if calendars else None
+        except:
+            return None
+
+    def add_dooray_calendar_event(name, date_obj, start_time, end_time, location):
+        """달력에 새로운 일정을 등록합니다."""
+        try:
+            my_calendar = get_dooray_calendar()
+            if not my_calendar: return False
+            
+            start_dt = datetime.datetime.combine(date_obj, start_time).strftime("%Y%m%dT%H%M%S")
+            end_dt = datetime.datetime.combine(date_obj, end_time).strftime("%Y%m%dT%H%M%S")
+            title = f"[예약가능] {name} 멘토님"
+            
+            vcal_data = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Daehanfeed Culture Hub//EN
+BEGIN:VEVENT
+SUMMARY:{title}
+DTSTART;TZID=Asia/Seoul:{start_dt}
+DTEND;TZID=Asia/Seoul:{end_dt}
+LOCATION:{location}
+DESCRIPTION:조직문화 플랫폼에서 신청 가능한 멘토링 일정입니다.
+END:VEVENT
+END:VCALENDAR"""
+            my_calendar.save_event(vcal_data)
+            return True
+        except Exception as e:
+            st.error(f"⚠️ 캘린더 등록 에러: {e}")
+            return False
+
+    def delete_dooray_calendar_event(name, date_obj):
+        """달력에서 누군가 신청했거나 삭제된 일정을 지웁니다."""
+        try:
+            my_calendar = get_dooray_calendar()
+            if not my_calendar: return False
+            
+            # 해당 날짜의 일정을 모두 가져와서 이름이 포함된 일정을 지웁니다.
+            start_dt = datetime.datetime.combine(date_obj, datetime.time.min)
+            end_dt = start_dt + datetime.timedelta(days=1)
+            
+            events = my_calendar.date_search(start=start_dt, end=end_dt)
+            for event in events:
+                if name in event.data: # 해당 멘토 이름이 들어간 일정 지우기
+                    event.delete()
+            return True
+        except Exception as e:
+            st.error(f"⚠️ 캘린더 삭제 에러: {e}")
+            return False
+            
+    # =========================================================
+
     def send_telegram_noti(mentor_name, date, start, end, location):
         try:
             bot_token = st.secrets["telegram_bot_token"]
@@ -99,7 +169,6 @@ def run_mentoring():
             st.error("⚠️ 스트림릿 Secrets에 텔레그램 토큰이 설정되지 않았습니다.")
             return False
             
-        # 📌 비공개 채널 규칙에 맞게 -100을 붙인 완벽한 숫자 아이디입니다!
         chat_id = "-1004464463229" 
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
@@ -108,7 +177,7 @@ def run_mentoring():
         text = (f"📢 *[{mentor_name} 멘토님]*의 새로운 멘토링 일정이 오픈되었습니다!\n\n"
                 f"  • 📅 일시 : {date} ({start_str} ~ {end_str})\n"
                 f"  • 📍 장소 : {location}\n\n"
-                f"▶ 지금 바로 조직문화 플랫폼에 접속해서 대화를 신청해 보세요!\n"
+                f"▶ 지금 바로 플랫폼에 접속해서 대화를 신청해 보세요!\n"
                 f"      (https://dhfeed-culture.streamlit.app)")
                 
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -128,12 +197,10 @@ def run_mentoring():
             st.error(f"⚠️ 통신 에러: {str(e)}")
             return False
 
-    # ✨ 오늘 이후의 일정이 있는 멘토만 필터링하여 드롭다운에 표시합니다.
     today_date_check = datetime.date.today()
     active_mentors = {s['mentor'] for s in st.session_state.get('available_slots', []) if s['date'] >= today_date_check}
     mentor_names = ["선택해주세요"] + [m['name'] for m in st.session_state.get('mentors_data', []) if m['name'] in active_mentors]
 
-    # 🚀 1단계: 역할별 메인 메뉴 (Main Tabs)
     main_tab_mentee, main_tab_mentor, main_tab_admin = st.tabs(["🙋‍♂️ 멘티 공간", "💼 멘토 공간", "👑 관리자 메뉴"])
 
     # =========================================================
@@ -215,6 +282,9 @@ def run_mentoring():
                                 if slot_to_del:
                                     st.session_state.available_slots.remove(slot_to_del)
                                     save2 = safe_save("slots", st.session_state.available_slots)
+                                    
+                                    # ✨ 매칭(신청)이 완료되면 캘린더에서 빈 일정을 삭제합니다!
+                                    delete_dooray_calendar_event(selected_m, sel_date)
 
                                 m_info = next((m for m in st.session_state.mentors_data if m['name']==selected_m), None)
                                 mail_ok = False
@@ -281,10 +351,10 @@ def run_mentoring():
                                 st.session_state.available_slots.append({"mentor": m_name_1, "date": dv, "start": sv, "end": ev, "location": lv})
                                 if safe_save("slots", st.session_state.available_slots):
                                     
-                                    # 🚀 leader.py에 적용된 알림 전송 및 상태값 반환 로직 적용 완료
+                                    # ✨ 일정을 구글 시트에 저장한 후, 캘린더에 쓰고 텔레그램을 보냅니다!
+                                    add_dooray_calendar_event(m_name_1, dv, sv, ev, lv)
                                     is_noti_success = send_telegram_noti(m_name_1, dv, sv, ev, lv)
                                     
-                            # 🚨 알림 전송에 성공했을 때만 화면을 새로고침 합니다.
                             if is_noti_success:
                                 st.snow()
                                 st.success("등록 완료!")
@@ -292,7 +362,7 @@ def run_mentoring():
                                 fetch_latest_data(force=True)
                                 st.rerun()
                             else:
-                                st.warning("일정은 저장되었으나 텔레그램 알림 발송에 실패했습니다. 위의 에러 메시지를 확인해 주세요.")
+                                st.warning("일정은 저장되었으나 텔레그램 알림 발송에 실패했습니다.")
                 
                     st.divider(); st.markdown(f"#### 🗑️ {m_name_1} 멘토님의 등록 일정")
                     my_slots = [x for x in st.session_state.get('available_slots', []) if x['mentor'] == m_name_1]
@@ -302,6 +372,8 @@ def run_mentoring():
                         if col_b.button("삭제", key=f"del_s_{i}"):
                             st.session_state.available_slots.remove(s)
                             if safe_save("slots", st.session_state.available_slots):
+                                # ✨ 멘토가 일정을 지우면, 캘린더에서도 함께 지웁니다!
+                                delete_dooray_calendar_event(m_name_1, s['date'])
                                 fetch_latest_data(force=True)
                                 st.rerun()
 
@@ -353,6 +425,10 @@ def run_mentoring():
                                             "mentor": r['mentor'], "date": r['date'], "start": r['start_time'], "end": r['end_time'], "location": r.get('location', '')
                                         })
                                         safe_save("slots", st.session_state.available_slots)
+                                        
+                                        # ✨ 멘토가 거절해서 일정이 다시 살아났으니 캘린더에 다시 등록합니다!
+                                        add_dooray_calendar_event(m_name_2, r['date'], r['start_time'], r['end_time'], r.get('location', '미정'))
+                                        
                                         fetch_latest_data(force=True)
                                         st.rerun()
 
