@@ -1,11 +1,12 @@
 import requests
 import json
-import streamlit as st
-import datetime
-import uuid
 import pandas as pd
 import gspread
+import datetime
+import uuid
 import time
+import streamlit as st
+import caldav
 from oauth2client.service_account import ServiceAccountCredentials
 from utils import *
 
@@ -36,8 +37,12 @@ def run_leader_talk():
 
     @st.cache_data(ttl=60, show_spinner=False)
     def get_sheet_data_leader(sheet_name):
-        try: doc = init_gspread_leader(); return doc.worksheet(sheet_name).get_all_records()
-        except: return []
+        try: 
+            doc = init_gspread_leader()
+            return doc.worksheet(sheet_name).get_all_records()
+        except Exception as e:
+            st.error(f"⚠️ '{sheet_name}' 데이터를 불러오는 중 오류 발생: {e}")
+            return []
 
     def fetch_latest_data_leader(force=False):
         if force: st.cache_data.clear()
@@ -70,6 +75,7 @@ def run_leader_talk():
 
     fetch_latest_data_leader()
 
+    # ✨ 구글 시트 과부하 방지를 위해 내부 fetch_latest_data_leader를 제거한 최적화 버전
     def safe_save_leader(ws_name, data_list):
         try:
             doc = init_gspread_leader()
@@ -80,9 +86,105 @@ def run_leader_talk():
                 for c in ['date', 'start', 'end', 'start_time', 'end_time']:
                     if c in df.columns: df[c] = df[c].astype(str)
                 df = df.fillna("")
-                ws.update([df.columns.values.tolist()] + df.values.tolist())
-            fetch_latest_data_leader(force=True)
-        except: st.error("⚠️ 데이터 저장 오류")
+                ws.update(values=[df.columns.values.tolist()] + df.values.tolist())
+            return True
+        except Exception as e: 
+            st.error(f"⚠️ 데이터 저장 오류 ({ws_name}): {e}")
+            return False
+
+    # =========================================================
+    # 📆 [두레이 캘린더 자동 탐색 및 연동 로직 적용]
+    # =========================================================
+    def get_dooray_calendar_leader():
+        cal_id = st.secrets.get("dooray_cal_id")
+        cal_pw = st.secrets.get("dooray_cal_pw")
+        
+        if not cal_id or not cal_pw:
+            st.error("⚠️ Secrets에 두레이 계정 정보가 설정되지 않았습니다.")
+            return None
+
+        urls_to_try = [
+            f"https://caldav.dooray.com/caldav/principals/{cal_id}/",
+            "https://caldav.dooray.com/caldav/",
+            "https://caldav.dooray.com"
+        ]
+        
+        last_error = ""
+        for test_url in urls_to_try:
+            try:
+                client = caldav.DAVClient(url=test_url, username=cal_id, password=cal_pw)
+                principal = client.principal()
+                calendars = principal.calendars()
+                
+                if calendars:
+                    for c in calendars:
+                        if hasattr(c, 'name') and c.name in ["리더와의 대화", "멘토링&코칭"]:
+                            return c
+                    return calendars[0]
+            except Exception as e:
+                last_error = str(e)
+                continue
+                
+        st.error(f"⚠️ 캘린더 서버 접속 에러 (마지막 에러: {last_error})")
+        return None
+
+    def add_dooray_calendar_event_leader(name, date_obj, start_time, end_time, location, prefix="[예약가능]"):
+        try:
+            my_calendar = get_dooray_calendar_leader()
+            if not my_calendar: return False
+            
+            start_dt = datetime.datetime.combine(date_obj, start_time).strftime("%Y%m%dT%H%M%S")
+            end_dt = datetime.datetime.combine(date_obj, end_time).strftime("%Y%m%dT%H%M%S")
+            title = f"{prefix} {name} 리더님"
+            
+            event_uid = str(uuid.uuid4())
+            dt_stamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+            
+            vcal_data = f"""BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Daehanfeed Culture Hub//EN
+BEGIN:VEVENT
+UID:{event_uid}
+DTSTAMP:{dt_stamp}
+SUMMARY:{title}
+DTSTART;TZID=Asia/Seoul:{start_dt}
+DTEND;TZID=Asia/Seoul:{end_dt}
+LOCATION:{location}
+DESCRIPTION:조직문화 플랫폼에서 신청 가능한 리더와의 대화 일정입니다.\\nhttps://dhfeed-culture.streamlit.app/
+END:VEVENT
+END:VCALENDAR"""
+            
+            try:
+                my_calendar.save_event(vcal_data)
+                return True
+            except caldav.lib.error.PutError as pe:
+                if "200" in str(pe) or "201" in str(pe) or "204" in str(pe):
+                    return True
+                else:
+                    st.error(f"⚠️ 캘린더 일정 등록 에러: {pe}")
+                    return False
+        except Exception as e:
+            st.error(f"⚠️ 캘린더 시스템 에러: {e}")
+            return False
+
+    def delete_dooray_calendar_event_leader(name, date_obj):
+        try:
+            my_calendar = get_dooray_calendar_leader()
+            if not my_calendar: return False
+            
+            start_dt = datetime.datetime.combine(date_obj, datetime.time.min)
+            end_dt = start_dt + datetime.timedelta(days=1)
+            
+            events = my_calendar.date_search(start=start_dt, end=end_dt)
+            for event in events:
+                if name in event.data: 
+                    event.delete()
+            return True
+        except Exception as e:
+            st.error(f"⚠️ 캘린더 일정 삭제 에러: {e}")
+            return False
+
+    # =========================================================
 
     def send_telegram_noti(name, date, start, end, location):
         try:
@@ -91,7 +193,6 @@ def run_leader_talk():
             st.error("⚠️ 스트림릿 Secrets에 텔레그램 토큰이 설정되지 않았습니다.")
             return False
             
-        # 📌 비공개 채널 규칙에 맞게 -100을 붙인 완벽한 숫자 아이디입니다!
         chat_id = "-1004464463229" 
         
         start_str = start.strftime('%H:%M') if hasattr(start, 'strftime') else str(start)[:5]
@@ -190,22 +291,37 @@ def run_leader_talk():
                         if not m_n or not topic or not is_company_email(m_e): 
                             st.warning("⚠️ 정보를 정확히 입력해 주세요. (이메일은 @daehanfeed.co.kr 필수)")
                         else:
-                            with st.status("📡 매칭 처리 중..."):
+                            with st.status("📡 매칭 처리 중...") as status:
                                 new_res = {"id": str(uuid.uuid4())[:8], "mentor": selected_m, "mentee_name": m_n, "mentee_position": m_p, "mentee_team": m_t, "mentee_email": m_e, "date": sel_date, "start_time": ts, "end_time": te, "topic": topic, "location": loc, "status": "대기중"}
                                 st.session_state.l_reservations.append(new_res)
-                                safe_save_leader("reservations", st.session_state.l_reservations)
+                                save1 = safe_save_leader("reservations", st.session_state.l_reservations)
                                 
                                 slot_to_del = next((s for s in st.session_state.l_available_slots if s['mentor'] == selected_m and s['date'] == sel_date), None)
+                                save2 = True
                                 if slot_to_del:
                                     st.session_state.l_available_slots.remove(slot_to_del)
-                                    safe_save_leader("slots", st.session_state.l_available_slots)
+                                    save2 = safe_save_leader("slots", st.session_state.l_available_slots)
 
                                 m_info = next((m for m in st.session_state.leaders_data if m['name']==selected_m), None)
+                                mail_ok = False
                                 if m_info and m_info.get('email'):
                                     mail_subject = f"[대한사료 리더대화] 새로운 대화 신청이 접수되었습니다."
-                                    mail_body = f"안녕하세요, {selected_m} 리더님!\n\n{m_n}님께서 대화를 신청하셨습니다.\n\n- 일시: {sel_date} ({ts.strftime('%H:%M')} ~ {te.strftime('%H:%M')})\n- 주제: {topic}\n\n▶ 시스템 접속: {SYSTEM_URL}"
-                                    send_email(m_info['email'], mail_subject, mail_body)
-                            st.balloons(); time.sleep(1); st.rerun()
+                                    mail_body = f"안녕하세요, {selected_m} 리더님!\n\n{m_n}님께서 대화를 신청하셨습니다.\n\n- 일시 : {sel_date} ({ts.strftime('%H:%M')} ~ {te.strftime('%H:%M')})\n- 주제 : {topic}\n\n▶ 시스템 접속: {SYSTEM_URL}"
+                                    mail_ok = send_email(m_info['email'], mail_subject, mail_body)
+
+                                if save1 and save2:
+                                    status.update(label="처리 완료!", state="complete")
+                                    st.balloons()
+                                    if mail_ok:
+                                        st.success("✅ 신청이 완료되었으며, 리더님께 알림 메일이 발송되었습니다.")
+                                    else:
+                                        st.warning("⚠️ 예약은 정상 저장되었으나 메일 발송에 실패했습니다.")
+                                    time.sleep(3)
+                                    fetch_latest_data_leader(force=True) 
+                                    st.rerun()
+                                else:
+                                    status.update(label="처리 실패", state="error")
+                                    st.error("⚠️ 데이터 저장에 실패하여 신청이 취소되었습니다.")
 
     with main_tab_leader:
         sub_tab_schedule, sub_tab_manage, sub_tab_info = st.tabs(["🗓️ 일정 등록 및 관리", "📋 신청 현황 관리", "⚙️ 리더 정보 변경"])
@@ -245,19 +361,19 @@ def run_leader_talk():
                             is_noti_success = False
                             with st.status("📡 저장 중..."):
                                 st.session_state.l_available_slots.append({"mentor": l_name_1, "date": dv, "start": sv, "end": ev, "location": lv})
-                                safe_save_leader("slots", st.session_state.l_available_slots)
-                                
-                                # 성공 여부를 체크합니다.
-                                is_noti_success = send_telegram_noti(l_name_1, dv, sv, ev, lv)
+                                if safe_save_leader("slots", st.session_state.l_available_slots):
+                                    
+                                    add_dooray_calendar_event_leader(l_name_1, dv, sv, ev, lv)
+                                    is_noti_success = send_telegram_noti(l_name_1, dv, sv, ev, lv)
                             
-                            # 🚨 알림 전송에 성공했을 때만 화면을 새로고침 합니다.
                             if is_noti_success:
                                 st.snow()
                                 st.success("등록 완료!")
-                                time.sleep(1.5)
+                                time.sleep(2)
+                                fetch_latest_data_leader(force=True)
                                 st.rerun()
                             else:
-                                st.warning("일정은 저장되었으나 텔레그램 알림 발송에 실패했습니다. 위의 에러 메시지를 확인해 주세요.")
+                                st.warning("일정은 저장되었으나 텔레그램 알림 발송에 실패했습니다.")
             
                     st.divider(); st.markdown(f"#### 🗑️ {l_name_1} 리더님의 등록 일정")
                     my_slots = [x for x in st.session_state.get('l_available_slots', []) if x['mentor'] == l_name_1]
@@ -265,7 +381,11 @@ def run_leader_talk():
                         col_a, col_b = st.columns([4, 1]); w_s = WEEKS[s['date'].weekday()]
                         col_a.write(f"📅 {s['date']}({w_s}) | ⏰ {s['start']}~{s['end']} | 📍 {s.get('location','-')}")
                         if col_b.button("삭제", key=f"l_del_s_{i}"):
-                            st.session_state.l_available_slots.remove(s); safe_save_leader("slots", st.session_state.l_available_slots); st.rerun()
+                            st.session_state.l_available_slots.remove(s)
+                            if safe_save_leader("slots", st.session_state.l_available_slots):
+                                delete_dooray_calendar_event_leader(l_name_1, s['date'])
+                                fetch_latest_data_leader(force=True)
+                                st.rerun()
 
         with sub_tab_manage:
             st.subheader("📋 구성원 신청 현황 관리")
@@ -295,21 +415,33 @@ def run_leader_talk():
                             if r['status'] == "대기중":
                                 b1, b2 = st.columns(2)
                                 if b1.button("✅ 승인", key=f"l_ok_{r['id']}", use_container_width=True):
-                                    r['status']="승인됨"; safe_save_leader("reservations", st.session_state.l_reservations)
-                                    if r.get('mentee_email'):
-                                        body = f"안녕하세요, {r['mentee_name']}님!\n\n신청하신 리더와의 대화가 승인되었습니다.\n\n- 일시: {r['date']} ({r['start_time']} ~ {r['end_time']})\n- 리더: {l_name_2} 리더님\n\n감사합니다."
-                                        send_email(r['mentee_email'], "[대한사료 리더대화] 신청하신 예약이 승인되었습니다!", body)
-                                    st.rerun()
+                                    r['status']="승인됨"
+                                    if safe_save_leader("reservations", st.session_state.l_reservations):
+                                        if r.get('mentee_email'):
+                                            body = f"안녕하세요, {r['mentee_name']}님!\n\n신청하신 리더와의 대화가 승인되었습니다.\n\n- 일시 : {r['date']} ({r['start_time']} ~ {r['end_time']})\n- 리더 : {l_name_2} 리더님\n\n감사합니다."
+                                            send_email(r['mentee_email'], "[대한사료 리더대화] 신청하신 예약이 승인되었습니다!", body)
+                                            
+                                        delete_dooray_calendar_event_leader(l_name_2, r['date'])
+                                        add_dooray_calendar_event_leader(l_name_2, r['date'], r['start_time'], r['end_time'], r.get('location', '-'), prefix="[승인완료]")
+                                        
+                                        fetch_latest_data_leader(force=True)
+                                        st.rerun()
                             
                                 if b2.button("❌ 거절", key=f"l_no_{r['id']}", use_container_width=True):
-                                    r['status']="거절됨"; safe_save_leader("reservations", st.session_state.l_reservations)
-                                    if r.get('mentee_email'):
-                                        send_email(r['mentee_email'], "[대한사료 리더대화] 신청하신 예약이 반려되었습니다.", f"아쉽게도 {l_name_2} 리더님이 예약을 반려하셨습니다. 다른 일정을 선택해 주세요.")
-                                    st.session_state.l_available_slots.append({
-                                        "mentor": r['mentor'], "date": r['date'], "start": r['start_time'], "end": r['end_time'], "location": r.get('location', '')
-                                    })
-                                    safe_save_leader("slots", st.session_state.l_available_slots)
-                                    st.rerun()
+                                    r['status']="거절됨"
+                                    if safe_save_leader("reservations", st.session_state.l_reservations):
+                                        if r.get('mentee_email'):
+                                            send_email(r['mentee_email'], "[대한사료 리더대화] 신청하신 예약이 반려되었습니다.", f"아쉽게도 {l_name_2} 리더님이 예약을 반려하셨습니다. 다른 일정을 선택해 주세요.")
+                                        st.session_state.l_available_slots.append({
+                                            "mentor": r['mentor'], "date": r['date'], "start": r['start_time'], "end": r['end_time'], "location": r.get('location', '')
+                                        })
+                                        safe_save_leader("slots", st.session_state.l_available_slots)
+                                        
+                                        delete_dooray_calendar_event_leader(l_name_2, r['date'])
+                                        add_dooray_calendar_event_leader(l_name_2, r['date'], r['start_time'], r['end_time'], r.get('location', '미정'), prefix="[예약가능]")
+                                        
+                                        fetch_latest_data_leader(force=True)
+                                        st.rerun()
 
         with sub_tab_info:
             st.subheader("⚙️ 리더 정보 변경")
@@ -359,10 +491,10 @@ def run_leader_talk():
                                             st.session_state.leaders_data[idx]['greeting'] = new_greet
                                             st.session_state.leaders_data[idx]['pw'] = final_pw
                                             break
-                                    safe_save_leader("leaders", st.session_state.leaders_data)
-                                    st.success("✅ 리더 정보가 성공적으로 변경되었습니다!")
-                                    time.sleep(1.5)
-                                    st.rerun()
+                                    if safe_save_leader("leaders", st.session_state.leaders_data):
+                                        st.success("✅ 리더 정보가 성공적으로 변경되었습니다!")
+                                        time.sleep(1.5)
+                                        st.rerun()
 
     with main_tab_admin:
         st.subheader("👑 인사총무팀 전용 관리 시스템")
@@ -380,7 +512,8 @@ def run_leader_talk():
                 ng = st.text_area("인사말", key="l_n7")
                 if st.button("등록하기", key="l_reg_btn") and is_company_email(ne):
                     st.session_state.leaders_data.append({"name":nm, "position":np, "team":nt, "pw":n_pw, "expertise":nx, "greeting":ng, "email":ne})
-                    safe_save_leader("leaders", st.session_state.leaders_data); st.rerun()
+                    if safe_save_leader("leaders", st.session_state.leaders_data):
+                        fetch_latest_data_leader(force=True); st.rerun()
             
             with st.expander("📋 기존 리더 수정/삭제", expanded=True):
                 for i, m in enumerate(st.session_state.get('leaders_data', [])):
@@ -394,7 +527,13 @@ def run_leader_talk():
                     if st.button("💾 저장", key=f"l_sv_{i}"):
                         if is_company_email(ue):
                             st.session_state.leaders_data[i].update({"name":un,"position":up,"team":ut,"pw":upw,"email":ue,"expertise":ux,"greeting":ug})
-                            safe_save_leader("leaders", st.session_state.leaders_data); st.success("수정됨"); st.rerun()
+                            if safe_save_leader("leaders", st.session_state.leaders_data): 
+                                st.success("수정됨")
+                                fetch_latest_data_leader(force=True)
+                                st.rerun()
                     if st.button("❌ 삭제", key=f"l_dl_{i}"):
-                        st.session_state.leaders_data.pop(i); safe_save_leader("leaders", st.session_state.leaders_data); st.rerun()
+                        st.session_state.leaders_data.pop(i)
+                        if safe_save_leader("leaders", st.session_state.leaders_data): 
+                            fetch_latest_data_leader(force=True)
+                            st.rerun()
                     st.divider()
