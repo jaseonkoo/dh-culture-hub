@@ -572,3 +572,28 @@ END:VCALENDAR"""
                         st.session_state.mentors_data.pop(i)
                         if safe_save("mentors", st.session_state.mentors_data): fetch_latest_data(force=True); st.rerun()
                     st.divider()
+# --- (기존 멘토 수정/삭제 코드 밑에 아래 내용을 추가하세요) ---
+            
+            with st.expander("🛠️ 시스템 관리 (기존 일정 캘린더 일괄 등록)"):
+                st.info("💡 캘린더 연동 기능이 적용되기 전에 등록된 '예약 가능' 및 '승인 완료' 일정들을 두레이 캘린더로 일괄 전송합니다.")
+                st.warning("🚨 주의: 버튼을 여러 번 누르면 캘린더에 일정이 중복으로 등록될 수 있으니 딱 한 번만 눌러주세요!")
+                
+                if st.button("🔄 캘린더 일괄 동기화 실행", type="primary", use_container_width=True):
+                    with st.status("📡 기존 일정들을 캘린더로 전송하는 중...") as sync_status:
+                        success_count = 0
+                        today_date = datetime.date.today()
+                        
+                        # 1. 예약 가능 일정 (slots) 밀어넣기 (오늘 이후 일정만)
+                        for s in st.session_state.get('available_slots', []):
+                            if s['date'] >= today_date:
+                                if add_dooray_calendar_event(s['mentor'], s['date'], s['start'], s['end'], s.get('location', '-'), prefix="[예약가능]"):
+                                    success_count += 1
+                        
+                        # 2. 승인 완료된 예약 (reservations) 밀어넣기 (오늘 이후 일정만)
+                        for r in st.session_state.get('reservations', []):
+                            if r['date'] >= today_date and r['status'] == "승인됨":
+                                if add_dooray_calendar_event(r['mentor'], r['date'], r['start_time'], r['end_time'], r.get('location', '-'), prefix="[승인완료]"):
+                                    success_count += 1
+                        
+                        sync_status.update(label=f"✅ 총 {success_count}건의 일정이 두레이 캘린더에 성공적으로 등록되었습니다!", state="complete")
+                        st.balloons()
