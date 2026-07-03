@@ -537,3 +537,31 @@ END:VCALENDAR"""
                             fetch_latest_data_leader(force=True)
                             st.rerun()
                     st.divider()
+# --- (기존 리더 수정/삭제 코드 맨 밑의 st.divider() 아래에 추가하세요) ---
+            
+            with st.expander("🛠️ 시스템 관리 (기존 일정 캘린더 일괄 등록)"):
+                st.info("💡 캘린더 연동 기능이 적용되기 전에 등록된 '예약 가능' 및 '승인 완료' 일정들을 두레이 캘린더로 일괄 전송합니다.")
+                st.warning("🚨 주의: 버튼을 여러 번 누르면 캘린더에 일정이 중복으로 등록될 수 있으니 딱 한 번만 눌러주세요!")
+                
+                # 버튼 key를 리더용으로 다르게 지정(l_sync_btn)
+                if st.button("🔄 캘린더 일괄 동기화 실행", key="l_sync_btn", type="primary", use_container_width=True):
+                    with st.status("📡 기존 일정들을 캘린더로 전송하는 중...") as sync_status:
+                        success_count = 0
+                        today_date = datetime.date.today()
+                        
+                        # 1. 예약 가능 일정 (l_available_slots) 밀어넣기
+                        for s in st.session_state.get('l_available_slots', []):
+                            if s['date'] >= today_date:
+                                # 리더용 캘린더 함수(add_dooray_calendar_event_leader) 사용
+                                if add_dooray_calendar_event_leader(s['mentor'], s['date'], s['start'], s['end'], s.get('location', '-'), prefix="[예약가능]"):
+                                    success_count += 1
+                        
+                        # 2. 승인 완료된 예약 (l_reservations) 밀어넣기
+                        for r in st.session_state.get('l_reservations', []):
+                            if r['date'] >= today_date and r['status'] == "승인됨":
+                                # 리더용 캘린더 함수(add_dooray_calendar_event_leader) 사용
+                                if add_dooray_calendar_event_leader(r['mentor'], r['date'], r['start_time'], r['end_time'], r.get('location', '-'), prefix="[승인완료]"):
+                                    success_count += 1
+                        
+                        sync_status.update(label=f"✅ 총 {success_count}건의 일정이 두레이 캘린더에 성공적으로 등록되었습니다!", state="complete")
+                        st.balloons()
