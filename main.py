@@ -153,7 +153,7 @@ if st.session_state.page == "home":
         st.markdown("### 🎯 핵심가치 타자연습")
         if st.button("입장하기", key="btn_typing", use_container_width=True): go_to("typing")
 
-row3_col1, row3_col2 = st.columns(2)
+    row3_col1, row3_col2 = st.columns(2)
     with row3_col1:
         st.markdown("### 🌾 밸류체인 타이쿤 (Beta)")
         st.caption("현재 테스트 중입니다.")
