@@ -92,7 +92,7 @@ def log_page_visit(page_name):
             ws.append_row(["날짜", "메인", "멘토링", "리더대화", "원데이클래스", "타자연습"])
             
         records = ws.get_all_records()
-        col_map = {"home": 2, "mentoring": 3, "leader": 4, "class": 5, "typing": 6}
+        col_map = {"home": 2, "mentoring": 3, "leader": 4, "class": 5, "typing": 6, "tycoon": 7}
         col_idx = col_map.get(page_name)
         if not col_idx: return
 
@@ -153,7 +153,25 @@ if st.session_state.page == "home":
         st.markdown("### 🎯 핵심가치 타자연습")
         if st.button("입장하기", key="btn_typing", use_container_width=True): go_to("typing")
 
-    st.markdown("---")
+row3_col1, row3_col2 = st.columns(2)
+    with row3_col1:
+        st.markdown("### 🌾 밸류체인 타이쿤 (Beta)")
+        st.caption("현재 테스트 중입니다.")
+        
+        c_pw, c_btn = st.columns([2, 1])
+        # 테스트용 비밀번호 입력창
+        test_pw = c_pw.text_input("비밀번호", type="password", key="tycoon_pw", label_visibility="collapsed", placeholder="비밀번호 입력")
+        
+        if c_btn.button("입장하기", key="btn_tycoon", use_container_width=True):
+            if test_pw == "koolee317":  # 👈 여기에 원하시는 테스트용 비밀번호를 적어주세요.
+                go_to("tycoon")
+            elif test_pw == "":
+                st.warning("비밀번호를 입력해 주세요.")
+            else:
+                st.error("비밀번호가 일치하지 않습니다.")
+    # -----------------------------------------------------------------------------------
+
+        st.markdown("---")
     # ✨ 명칭을 '누적 접속 횟수'로 변경하고, 단위도 '명'에서 '회'로 변경했습니다.
     st.markdown(f"<span style='color: gray; font-size: 0.9em;'>📊 현재 누적 접속 횟수: {total_visitors}회</span>", unsafe_allow_html=True)
 
@@ -177,3 +195,8 @@ elif st.session_state.page == "typing":
     log_page_visit("typing")
     if st.button("⬅️ 메인으로"): go_to("home")
     typing_game.run_typing_game()
+
+elif st.session_state.page == "tycoon":
+    log_page_visit("tycoon")
+    if st.button("⬅️ 메인으로"): go_to("home")
+    tycoon_game.run_tycoon_game()
