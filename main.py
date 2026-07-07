@@ -10,6 +10,7 @@ import mentoring
 import leader
 import oneday
 import typing_game
+import tycoon_game
 
 # 페이지 기본 설정
 st.set_page_config(page_title="조직문화 활성화 Hub", page_icon="🏢", layout="wide")
