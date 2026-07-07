@@ -356,12 +356,11 @@ const MAT_EMO={"옥수수":"🌽","주정박":"🍺","대두박":"🫘","소맥�
 const FEED_NAMES=["양돈","축우","양계","양어"];
 const FARM_NAMES=["양돈농장","축우농장","양계농장","양어농장"];
 const FARM_EMO=["🐷","🐮","🐔","🐠"];
-// 라인별 발생 가능 이벤트(질병/재해) 목록 — 발생 시 이 중 하나가 무작위로 선택됨
 const DISEASES=[
-  ["아프리카돼지열병(ASF)","구제역(FMD)"],  // 양돈
-  ["구제역(FMD)"],                          // 축우
-  ["조류독감(AI)"],                          // 양계
-  ["태풍 발생"]                              // 양어
+  ["아프리카돼지열병(ASF)","구제역(FMD)"],
+  ["구제역(FMD)"],
+  ["조류독감(AI)"],
+  ["태풍 발생"]
 ];
 
 const DEFAULT_SETTINGS={
@@ -383,8 +382,8 @@ let money,matStocks,feedStock,isMaking,makeStart,isDelivering,deliverStart,truck
 let isBuying,buyStart,isDisease,diseaseStart,happyUntil,diseaseLabel;
 let teamName='',playerName='';
 let combo,lastDeliverTick,goalReached,gameStartTick,rafId,firstBuyDone;
-let stat;  // 경영 실적 기록
-let running=false;  // 게임 진행 중 여부(종료 후 애니메이션 생성 차단)
+let stat;
+let running=false;
 
 function resetGame(){
   money=cfg.start_money;
@@ -402,25 +401,36 @@ function resetGame(){
 function recipeOf(i){const f=FEED_NAMES[i];
   return [{mat:cfg["recipe_"+f+"_mat1"],amt:cfg["recipe_"+f+"_amt1"]},
           {mat:cfg["recipe_"+f+"_mat2"],amt:cfg["recipe_"+f+"_amt2"]}];}
-// 금액을 만원 단위로 표시 (1,500,000 -> 150만원)
 function man(v){return Math.round(v/10000).toLocaleString()+'만원';}
 
 /* ===== 화면 ===== */
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById(id).classList.add('active');}
 function goStart(){cancelAnimationFrame(rafId);show('startScreen');}
+
+// 💡 여기서부터 버튼을 눌렀을 때 실행되는 메인 시작 로직입니다!
 function startGame(){
   teamName=(document.getElementById('teamName').value||'').trim();
   playerName=(document.getElementById('playerName').value||'').trim();
+  
+  if(!teamName || !playerName) {
+      alert('소속팀과 이름을 입력해야 게임을 시작할 수 있습니다!');
+      return;
+  }
+  
+  try {
+      sessionStorage.removeItem('tycoonScoreSent');
+  } catch(e) {}
+  
   resetGame();buildBoard();show('playScreen');
   running=true;
-  gameStartTick=performance.now();cancelAnimationFrame(rafId);loop();}
+  gameStartTick=performance.now();cancelAnimationFrame(rafId);loop();
+}
 
 /* ===== 보드 생성 ===== */
 function buildBoard(){
   const b=document.getElementById('board');
   b.innerHTML='';
-  // 단계 헤더 4개
   const heads=[['1','원료 구매'],['2','사료 제조'],['3','배송'],['4','판매·입금']];
   heads.forEach((h,idx)=>{
     const d=document.createElement('div');
@@ -429,7 +439,6 @@ function buildBoard(){
     d.style.gridColumn=(idx+1); d.style.gridRow=1;
     b.appendChild(d);
   });
-  // 원료 상점 (왼쪽 세로, 4행 span)
   const shop=document.createElement('div');
   shop.className='shop';
   shop.innerHTML=
@@ -447,7 +456,6 @@ function buildBoard(){
         </div>
       </div>`).join('');
   b.appendChild(shop);
-  // 4개 라인 (공장/배송/농장) — 구조는 한 번만 생성, 이후엔 값만 갱신
   for(let i=0;i<4;i++){
     const factory=document.createElement('div');
     factory.className='cell factory';factory.id='fac-'+i;
@@ -514,15 +522,14 @@ function buyMat(m){const price=cfg["price_"+m];
   stat.matTons[m]+=10;stat.matCost[m]+=price;}
 function makeFeed(i){if(isMaking[i])return;const rec=recipeOf(i);
   if(rec.some(r=>(matStocks[r.mat]||0)<r.amt))return;
-  if(money<cfg.make_cost[i])return;                 // 제조비 부족
-  money-=cfg.make_cost[i];                           // 제조비 차감
+  if(money<cfg.make_cost[i])return;
+  money-=cfg.make_cost[i];
   stat.makeCost[i]+=cfg.make_cost[i];
   rec.forEach(r=>matStocks[r.mat]-=r.amt);isMaking[i]=1;makeStart[i]=performance.now();
   flyMaterials(i,rec);}
 function flyMaterials(i,rec){
   const fac=document.getElementById('fac-'+i);if(!fac)return;
   const fr=fac.getBoundingClientRect();
-  // 원료를 하나씩 순차적으로 크게 보여주며 공장으로 이동
   rec.forEach((r,idx)=>{
     const src=document.getElementById('mat-'+r.mat);if(!src)return;
     const s=src.getBoundingClientRect();
@@ -544,7 +551,6 @@ function flyMaterials(i,rec){
     }, idx*280);
   });
 }
-// 사료 포대(지대) 모양 — 축종별 색 + 동물 라벨 + 10t 배지
 const BAG=[{c:'#F4A0B5',d:'#D97A93'},{c:'#C79A6A',d:'#A9784B'},{c:'#F7C948',d:'#E0A82E'},{c:'#7FB8D8',d:'#5A93B5'}];
 function feedBagHTML(i){
   return `<div class="feedbag">
@@ -553,7 +559,6 @@ function feedBagHTML(i){
     <div class="bag-qty">10t</div>
   </div>`;
 }
-// 배송 시 사료 포대가 공장 -> 농장으로 이동
 function flyFeed(i){
   if(!running)return;
   const fac=document.getElementById('fac-'+i);
@@ -575,8 +580,8 @@ function flyFeed(i){
   setTimeout(()=>{el.remove();flash('frm-'+i);},1150);
 }
 function shipFeed(i){if(feedStock[i]<10||isDelivering[i]||isDisease[i])return;
-  if(money<cfg.ship_cost[i])return;                 // 배송비 부족
-  money-=cfg.ship_cost[i];                           // 배송비 차감
+  if(money<cfg.ship_cost[i])return;
+  money-=cfg.ship_cost[i];
   stat.shipTons[i]+=10;stat.shipCost[i]+=cfg.ship_cost[i];
   feedStock[i]-=10;isDelivering[i]=1;deliverStart[i]=performance.now();truckPos[i]=0;
   flyFeed(i);}
@@ -586,11 +591,8 @@ function loop(){
   const now=performance.now();
   let left=GAME_DURATION-(now-gameStartTick);
   if(left<=0){left=0;endGame();return;}
-  // 원료 입고
   MAT_NAMES.forEach(m=>{if(isBuying[m]&&now-buyStart[m]>=cfg.buy_time*1000){isBuying[m]=0;matStocks[m]+=10;}});
-  // 콤보 감쇠
   if(combo>0 && now-lastDeliverTick>COMBO_WINDOW) combo=0;
-  // 라인
   for(let i=0;i<4;i++){
     if(!isDisease[i]&&Math.random()<DISEASE_CHANCE){isDisease[i]=1;diseaseStart[i]=now;
       diseaseLabel[i]=DISEASES[i][Math.floor(Math.random()*DISEASES[i].length)];}
@@ -601,7 +603,6 @@ function loop(){
       truckPos[i]=Math.min(1,(now-deliverStart[i])/DELIVER_TIME);
       if(now-deliverStart[i]>=DELIVER_TIME){
         isDelivering[i]=0;
-        // 콤보 처리
         combo=(now-lastDeliverTick<=COMBO_WINDOW)?combo+1:1;
         lastDeliverTick=now;
         const bonus=Math.min(COMBO_MAX_BONUS,(combo-1)*COMBO_STEP);
@@ -612,7 +613,6 @@ function loop(){
       }
     }
   }
-  // 목표 달성
   if(!goalReached && money-cfg.start_money>=cfg.goal_profit){goalReached=true;bigToast("🎉 목표 달성! 계속 벌어보세요!");}
   render(now,left);
   rafId=requestAnimationFrame(loop);
@@ -623,15 +623,12 @@ function render(now,left){
   document.getElementById('moneyText').textContent=man(money);
   const sec=Math.floor(left/1000),mm=String(Math.floor(sec/60)).padStart(2,'0'),ss=String(sec%60).padStart(2,'0');
   const tm=document.getElementById('timerText');tm.textContent=`${mm}:${ss}`;tm.classList.toggle('warn',sec<30);
-  // 목표바
   const prog=Math.max(0,Math.min(1,(money-cfg.start_money)/cfg.goal_profit));
   document.getElementById('goalBar').style.width=(prog*100)+'%';
   document.getElementById('goalText').textContent=goalReached?'달성! 🎉':Math.floor(prog*100)+'%';
-  // 콤보
   const cb=document.getElementById('comboBox');
   if(combo>1){cb.textContent=`🔥 콤보 x${combo}`;cb.classList.add('on');}
   else{cb.classList.remove('on');cb.textContent='';}
-  // 원료 상점
   const cheapestAffordable=MAT_NAMES.filter(m=>money>=cfg["price_"+m]).sort((a,b)=>cfg["price_"+a]-cfg["price_"+b])[0];
   MAT_NAMES.forEach(m=>{
     document.getElementById('stk-'+m).textContent='재고 '+matStocks[m]+'t';
@@ -654,10 +651,8 @@ function render(now,left){
       btn.classList.toggle('hint',afford && !firstBuyDone && m===cheapestAffordable);
     }
   });
-  // 라인
   for(let i=0;i<4;i++){
     const rec=recipeOf(i);
-    // 공장
     const fac=document.getElementById('fac-'+i);
     if(isMaking[i]){
       fac.classList.add('on');
@@ -675,14 +670,12 @@ function render(now,left){
       const mk=document.getElementById('mk-'+i);mk.disabled=!can;mk.classList.toggle('ready',can);
       mk.textContent = !hasMat ? '원료 재고 없음' : (!hasCash ? '자금 부족' : '🥣 제조');
     }
-    // 배송
     const shp=document.getElementById('shp-'+i);shp.classList.remove('disease');
     if(isDisease[i]){
       shp.classList.add('disease');
       hideBlock('shpnorm-'+i);hideBlock('shpdeliver-'+i);showBlock('shpdisease-'+i);
       const isTy=diseaseLabel[i].includes('태풍');
       document.getElementById('dtag-'+i).textContent = isTy ? '🌀 태풍 출하중단' : '🚨 방역 통제 중';
-      // 남은 통제 시간을 줄어드는 바로 표시
       document.getElementById('dbar-'+i).style.width=Math.max(0,(DISEASE_DURATION-(now-diseaseStart[i]))/DISEASE_DURATION*100)+'%';
     }else if(isDelivering[i]){
       hideBlock('shpnorm-'+i);showBlock('shpdeliver-'+i);hideBlock('shpdisease-'+i);
@@ -694,7 +687,6 @@ function render(now,left){
       const sh=document.getElementById('sh-'+i);sh.disabled=!canShip;sh.classList.toggle('ready',canShip);
       sh.textContent = (hasFeed&&money<cfg.ship_cost[i]) ? '자금 부족' : '📦 배송';
     }
-    // 농장
     const frm=document.getElementById('frm-'+i);
     if(isDisease[i]){
       frm.classList.add('disease');frm.classList.remove('happy');
@@ -721,7 +713,7 @@ function bigToast(text){
   t.style.left='50%';t.style.top='120px';t.style.transform='translateX(-50%)';
   layer.appendChild(t);setTimeout(()=>t.remove(),1400);}
 
-/* ===== 게임오버 ===== */
+/* ===== 게임오버 및 스트림릿 통신 ===== */
 function endGame(){cancelAnimationFrame(rafId);running=false;
   document.getElementById('flyL').innerHTML='';document.getElementById('toastL').innerHTML='';
   document.getElementById('finalMoney').textContent=man(money);
@@ -735,49 +727,51 @@ function endGame(){cancelAnimationFrame(rafId);running=false;
   const who=[teamName,playerName].filter(Boolean).join(' · ');
   document.getElementById('whoText').textContent=who?`🏷️ ${who}`:'';
   document.getElementById('reportBox').innerHTML=buildReport(profit);
-  show('overScreen');}
-  const parent = window.parent;
-  const hiddenInput = parent.document.querySelector('input[aria-label="hidden_tycoon_data"]');
-  
-  if (hiddenInput && !sessionStorage.getItem('tycoonScoreSent')) {
-      const dataObj = { name: playerName, team: teamName, profit: profit };
-      let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-      nativeInputValueSetter.call(hiddenInput, JSON.stringify(dataObj));
-      hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+  show('overScreen');
+
+  // 💡 스트림릿 명예의 전당 통신 로직
+  try {
+      const parent = window.parent;
+      const hiddenInput = parent.document.querySelector('input[aria-label="hidden_tycoon_data"]');
       
-      setTimeout(() => {
-          hiddenInput.focus();
-          hiddenInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
-          hiddenInput.blur();
-      }, 100);
-      sessionStorage.setItem('tycoonScoreSent', 'true');
+      if (hiddenInput && !sessionStorage.getItem('tycoonScoreSent')) {
+          const dataObj = { name: playerName, team: teamName, profit: profit };
+          let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+          nativeInputValueSetter.call(hiddenInput, JSON.stringify(dataObj));
+          hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+          
+          setTimeout(() => {
+              hiddenInput.focus();
+              hiddenInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+              hiddenInput.blur();
+          }, 100);
+          sessionStorage.setItem('tycoonScoreSent', 'true');
+      }
+  } catch(e) {
+      console.log("스트림릿 연동 중 문제가 발생했습니다:", e);
   }
 }
 
-  
 // ===== 최종 경영 실적 리포트 =====
 function buildReport(profit){
-  // 원료 구매 표
   let totBuy=0, matRows='';
   MAT_NAMES.forEach(m=>{
     totBuy+=stat.matCost[m];
     const bought=stat.matTons[m], left=matStocks[m];
-    const leftWarn=(bought>0 && left>=30);   // 사놓고 거의 못 쓴 원료
+    const leftWarn=(bought>0 && left>=30);
     matRows+=`<tr><td>${MAT_EMO[m]} ${m}</td><td>${bought}t</td><td>${man(stat.matCost[m])}</td>`
       +`<td class="${leftWarn?'warn':''}">${left}t</td></tr>`;
   });
-  // 라인별 표
   let totRev=0,totMake=0,totShip=0,totMade=0,totShipT=0, lineRows='';
   FEED_NAMES.forEach((f,i)=>{
     totRev+=stat.revenue[i];totMake+=stat.makeCost[i];totShip+=stat.shipCost[i];
     totMade+=stat.madeTons[i];totShipT+=stat.shipTons[i];
-    const feedLeft=feedStock[i], leftWarn=feedLeft>=10;  // 만들고 못 보낸 사료
+    const feedLeft=feedStock[i], leftWarn=feedLeft>=10;
     lineRows+=`<tr><td>${FARM_EMO[i]} ${f}</td><td>${stat.madeTons[i]}t</td><td>${man(stat.makeCost[i])}</td>`
       +`<td>${stat.shipTons[i]}t</td><td>${man(stat.shipCost[i])}</td><td>${man(stat.revenue[i])}</td>`
       +`<td class="${leftWarn?'warn':''}">${feedLeft}t</td></tr>`;
   });
   const totCost=totBuy+totMake+totShip;
-  // 경영 진단
   const ins=[];
   if(totMade===0) ins.push('⚠️ 사료를 한 번도 제조하지 못했습니다. 원료를 사서 <b>제조</b> 버튼을 눌러보세요.');
   const unsold=[];FEED_NAMES.forEach((f,i)=>{if(feedStock[i]>=10)unsold.push(`${f} ${feedStock[i]}t`);});
