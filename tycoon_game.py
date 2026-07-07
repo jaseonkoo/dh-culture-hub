@@ -60,7 +60,7 @@ def run_tycoon_game():
     with tab1:
         # 💡 코드를 직접 넣지 않고 원본 HTML 파일을 통째로 불러옵니다!
         try:
-            with open("daehan_feed_tycoon_23.html", "r", encoding="utf-8") as f:
+            with open("feedtycoon_game.html", "r", encoding="utf-8") as f:
                 original_html = f.read()
             
             # HTML 화면 띄우기 (효과가 잘 보이도록 높이를 900으로 넉넉히 줍니다)
