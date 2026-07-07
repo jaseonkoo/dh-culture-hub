@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>대한사료 밸류체인 타이쿤 🌾</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#FBF3DE; --cream-2:#F5E9CC; --card:#FFFDF7;
+    --leaf:#7CBF6B; --leaf-dark:#5EA24E; --leaf-deep:#3F7D34;
+    --wood:#C79A6A; --wood-dark:#A9784B;
+    --sky:#9FD8E8; --sky-dark:#6FB7CC;
+    --sun:#F7C948; --sun-dark:#E0A82E;
+    --tomato:#E8836B; --tomato-dark:#CE5B42;
+    --brown:#6B4E2E; --line:#E3C9A0;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif; font-weight:500;
+    background:radial-gradient(circle at 12% 10%,#FFFBEA 0%,transparent 42%),
+               radial-gradient(circle at 88% 16%,#EAF6E1 0%,transparent 46%),var(--cream);
+    color:var(--brown); min-height:100vh;
+    display:flex;align-items:flex-start;justify-content:center;padding:14px;
+  }
+  .frame{
+    width:min(1080px,98vw); background:var(--cream);
+    border-radius:30px; border:6px solid var(--wood-dark);
+    box-shadow:0 16px 0 rgba(169,120,75,.32),0 24px 40px rgba(107,78,46,.26);
+    padding:16px; position:relative;
+  }
+  h1,h2,h3{font-family:'Jua',sans-serif;margin:0;}
+
+  .btn{font-family:'Jua';cursor:pointer;border:none;border-radius:18px;color:#fff;
+    padding:13px 22px;font-size:18px;box-shadow:0 5px 0 rgba(0,0,0,.18);transition:transform .06s,box-shadow .06s;}
+  .btn:active{transform:translateY(4px);box-shadow:0 1px 0 rgba(0,0,0,.18);}
+  .btn-green{background:var(--leaf);} .btn-wood{background:var(--wood);}
+  .btn-sun{background:var(--sun);color:var(--brown);}
+  .btn-sm{padding:8px 14px;font-size:15px;border-radius:13px;}
+
+  .screen{display:none;} .screen.active{display:block;animation:pop .3s ease;}
+  @keyframes pop{from{opacity:0;transform:scale(.98)}to{opacity:1;transform:scale(1)}}
+
+  /* ===== 시작 ===== */
+  #startScreen{text-align:center;padding:22px 10px 30px;}
+  .badge{display:inline-block;background:var(--leaf);color:#fff;padding:6px 18px;border-radius:999px;
+    font-family:'Jua';font-size:16px;box-shadow:0 4px 0 var(--leaf-dark);margin-bottom:12px;}
+  #startScreen h1{font-size:42px;color:var(--leaf-deep);text-shadow:2px 3px 0 #fff,3px 5px 0 rgba(169,120,75,.22);}
+  .sub{font-size:19px;color:var(--wood-dark);margin:8px 0;}
+  /* 흐름 배너(교육 핵심) */
+  .flow{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;margin:18px 0 6px;}
+  .flow .step{background:var(--card);border:3px solid var(--line);border-radius:18px;padding:10px 16px;
+    font-family:'Jua';font-size:17px;min-width:110px;box-shadow:0 4px 0 rgba(169,120,75,.16);}
+  .flow .step .big{font-size:30px;display:block;}
+  .flow .step .big.multi{font-size:24px;letter-spacing:1px;}
+  .flow .step .big.flip{transform:scaleX(-1);}
+  .flow .arrow{font-size:26px;color:var(--leaf);}
+  .howto{margin:20px auto 0;max-width:600px;background:var(--card);border:3px dashed var(--line);
+    border-radius:20px;padding:16px 22px;text-align:left;}
+  .info-row{display:grid;grid-template-columns:52px 1fr;gap:12px;align-items:stretch;
+    margin:9px 0;font-size:16px;line-height:1.6;}
+  .info-row .lab{font-family:'Jua';color:#fff;background:var(--leaf);border-radius:9px;
+    font-size:14px;box-shadow:0 2px 0 var(--leaf-dark);
+    display:flex;align-items:center;justify-content:center;}
+  .info-row .desc{color:var(--brown);align-self:center;}
+  .info-row .desc b{color:var(--leaf-deep);}
+  .entry{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:20px;}
+  .entry input{font-family:'Noto Sans KR',sans-serif;font-size:16px;padding:12px 16px;border-radius:14px;
+    border:3px solid var(--line);background:var(--card);width:220px;text-align:center;}
+  .entry input:focus{outline:none;border-color:var(--leaf);}
+  .start-actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:16px;}
+
+  /* ===== HUD (상단 고정) ===== */
+  .hud{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    background:linear-gradient(180deg,#FFFDF7,#FBF3DE);border:3px solid var(--line);border-radius:20px;
+    padding:12px 16px;margin-bottom:12px;box-shadow:0 6px 14px rgba(107,78,46,.12);}
+  .money-card{display:flex;align-items:center;gap:10px;background:var(--leaf);color:#fff;
+    padding:8px 18px;border-radius:16px;box-shadow:0 4px 0 var(--leaf-dark);}
+  .money-card .coin{font-size:30px;}
+  .money-card .lbl{font-size:14px;opacity:.9;line-height:1;}
+  .money-card .val{font-family:'Jua';font-size:30px;line-height:1.1;font-variant-numeric:tabular-nums;}
+  .money-card{min-width:236px;}
+  .goal{flex:1;min-width:180px;}
+  .goal .top{display:flex;justify-content:space-between;font-size:14px;color:var(--wood-dark);margin-bottom:3px;}
+  .goal .bar{height:16px;background:var(--cream-2);border:2px solid var(--line);border-radius:10px;overflow:hidden;}
+  .goal .bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--sun),var(--leaf));transition:width .3s;}
+  #goalText{font-variant-numeric:tabular-nums;}
+  .combo{overflow:hidden;white-space:nowrap;}
+  .combo{font-family:'Jua';font-size:20px;color:var(--tomato-dark);min-width:96px;text-align:center;
+    opacity:0;transition:opacity .2s;}
+  .combo.on{opacity:1;animation:pump .3s;}
+  @keyframes pump{0%{transform:scale(1.3)}100%{transform:scale(1)}}
+  .timer{font-family:'Jua';font-size:26px;color:var(--sky-dark);background:var(--cream-2);
+    padding:6px 16px;border-radius:14px;font-variant-numeric:tabular-nums;min-width:112px;text-align:center;}
+  .timer.warn{color:#fff;background:var(--tomato);animation:blink .6s infinite;}
+  @keyframes blink{50%{opacity:.5}}
+
+  /* ===== 밸류체인 그리드 ===== */
+  .board{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:auto repeat(4,152px);gap:10px;}
+  .stage-h{display:flex;align-items:center;justify-content:center;gap:6px;
+    background:var(--leaf);color:#fff;border-radius:14px;padding:8px 4px;font-family:'Jua';font-size:16px;
+    box-shadow:0 4px 0 var(--leaf-dark);position:relative;}
+  .stage-h .num{background:#fff;color:var(--leaf-deep);border-radius:50%;width:24px;height:24px;
+    display:inline-flex;align-items:center;justify-content:center;font-size:15px;}
+  /* 단계 사이 오른쪽 화살표 */
+  .stage-h.arrowed::after{content:"▶";position:absolute;right:-11px;color:var(--wood);font-size:14px;z-index:3;}
+
+  .cell{background:var(--card);border:3px solid var(--line);border-radius:18px;padding:8px 12px;
+    box-shadow:0 4px 0 rgba(169,120,75,.14);position:relative;height:100%;min-height:0;overflow:hidden;
+    display:flex;flex-direction:column;justify-content:center;gap:4px;}
+  .cell .ttl{font-family:'Jua';font-size:18px;display:flex;align-items:center;gap:7px;}
+  .cell .ttl .e{font-size:24px;}
+
+  /* 원료 상점 (왼쪽 세로) */
+  .shop{grid-column:1;grid-row:2 / span 4;display:flex;flex-direction:column;gap:10px;
+    background:none;border:none;padding:0;box-shadow:none;}
+  .shop .cap{font-family:'Jua';font-size:14px;color:var(--wood-dark);text-align:center;}
+  .mat{flex:1 1 0;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:8px;background:var(--card);border:2px solid var(--line);
+    border-radius:14px;padding:12px 16px 16px;position:relative;overflow:visible;}
+  .mat .mtop{display:flex;align-items:center;justify-content:center;gap:14px;}
+  .mat .e{font-size:36px;}
+  .mat .info{line-height:1.25;text-align:center;}
+  .mat .nm{font-family:'Jua';font-size:18px;}
+  .mat .stk{font-size:15px;color:var(--leaf-deep);font-weight:700;}
+  .buybtn{display:block;width:154px;margin:4px auto 2px;border:none;border-radius:12px;font-family:'Jua';font-size:15px;
+    padding:8px 0;text-align:center;cursor:pointer;background:var(--sun);color:var(--brown);box-shadow:0 3px 0 var(--sun-dark);white-space:nowrap;}
+  .buybtn:disabled{background:#CFC7B2;color:#fff;cursor:not-allowed;box-shadow:0 3px 0 #B7AE97;}
+  .buybtn:not(:disabled):active{transform:translateY(2px);box-shadow:0 1px 0 var(--sun-dark);}
+  @keyframes buyhint{0%,100%{box-shadow:0 3px 0 var(--sun-dark),0 0 0 0 rgba(224,168,46,0)}
+    50%{box-shadow:0 3px 0 var(--sun-dark),0 0 0 5px rgba(224,168,46,.5)}}
+  .buybtn.hint{animation:buyhint 1.1s ease-in-out infinite;}
+  .importbox{display:flex;flex-direction:column;gap:3px;width:160px;margin:0 auto;}
+  .impmsg{font-size:13px;color:var(--sky-dark);font-weight:700;text-align:center;}
+  .mat .sea{position:relative;height:16px;border-radius:9px;
+    background:linear-gradient(180deg,#C6EAF4,#93D2E6);border:1px solid #7FC0D6;overflow:hidden;}
+  .mat .sea::before{content:"˜ ˜ ˜ ˜ ˜ ˜ ˜ ˜";position:absolute;top:0;left:4px;color:#fff;opacity:.55;font-size:12px;letter-spacing:2px;}
+  .mat .sea .boat{position:absolute;top:-4px;left:0;font-size:18px;transition:left .12s linear;transform:scaleX(-1);}
+  .mat.low .stk{color:var(--tomato-dark);}
+
+  /* 공장/배송/농장 */
+  .factory{background:linear-gradient(180deg,#F2FBEE,var(--card));}
+  .factory.on{background:linear-gradient(180deg,#FFF1D2,var(--card));}
+  /* 원료구매·사료제조·배송 열 내용 가운데 정렬 */
+  .factory,.ship{text-align:center;}
+  .factory .ttl,.ship .ttl{justify-content:center;}
+  .recipe{font-size:15px;margin:2px 0;}
+  .recipe .lack{color:var(--tomato-dark);font-weight:700;}
+  .recipe .out{color:var(--leaf-deep);font-family:'Jua';}
+  .miniact{display:block;width:154px;margin:10px auto 0;text-align:center;white-space:nowrap;
+    border:none;border-radius:12px;font-family:'Jua';font-size:15px;
+    color:#fff;padding:8px 0;cursor:pointer;box-shadow:0 3px 0 rgba(0,0,0,.14);}
+  .miniact:disabled{background:#CFC7B2!important;cursor:not-allowed;box-shadow:0 4px 0 rgba(0,0,0,.06);}
+  .miniact:not(:disabled):active{transform:translateY(3px);box-shadow:0 1px 0 rgba(0,0,0,.14);}
+  .bmake{background:var(--leaf);} .bship{background:var(--wood);}
+  /* 제조 가능할 때 버튼 유도 신호 */
+  @keyframes ready{0%,100%{box-shadow:0 3px 0 rgba(0,0,0,.14),0 0 0 0 rgba(94,162,78,0)}
+    50%{box-shadow:0 3px 0 rgba(0,0,0,.14),0 0 0 5px rgba(94,162,78,.4)}}
+  .miniact.ready{animation:ready 1.1s ease-in-out infinite;}
+  .dbar>i{background:var(--tomato)!important;}
+  /* 원료 이동 애니메이션 */
+  .flyL{position:fixed;inset:0;pointer-events:none;z-index:55;overflow:hidden;}
+  .fly{position:fixed;font-family:'Noto Sans KR',sans-serif;font-size:20px;font-weight:900;
+    background:#fff;border:3px solid var(--sun);border-radius:16px;padding:6px 14px;color:var(--brown);
+    box-shadow:0 8px 18px rgba(0,0,0,.3);transition:all 1s cubic-bezier(.3,.85,.35,1);white-space:nowrap;z-index:60;}
+  .fly .e2{font-size:26px;vertical-align:middle;}
+  /* 사료 포대(지대) 모양 */
+  .fly.feed{background:none;border:none;box-shadow:none;padding:0;}
+  .feedbag{position:relative;width:40px;height:48px;filter:drop-shadow(0 3px 4px rgba(0,0,0,.28));}
+  .feedbag .bag-top{position:absolute;top:0;left:7px;width:26px;height:8px;border-radius:3px 3px 0 0;}
+  .feedbag .bag-body{position:absolute;top:6px;left:2px;right:2px;bottom:0;border-radius:5px 5px 8px 8px;
+    display:flex;align-items:center;justify-content:center;}
+  .feedbag .bag-label{background:#fff;border-radius:6px;width:26px;height:26px;display:flex;align-items:center;
+    justify-content:center;font-size:17px;box-shadow:inset 0 0 0 2px rgba(0,0,0,.06);}
+  .feedbag .bag-qty{position:absolute;bottom:-5px;right:-7px;background:var(--leaf-deep);color:#fff;font-size:10px;
+    font-weight:700;border-radius:8px;padding:1px 5px;font-family:'Noto Sans KR',sans-serif;}
+  .mat.used{animation:usedpop .45s ease;}
+  @keyframes usedpop{0%{transform:scale(1)}40%{transform:scale(.92);box-shadow:0 0 0 4px var(--sun)}100%{transform:scale(1)}}
+  .bar{height:10px;background:var(--cream-2);border:1px solid var(--line);border-radius:7px;overflow:hidden;margin-top:6px;}
+  .bar>i{display:block;height:100%;width:0;background:var(--sun);}
+
+  .road{position:relative;height:38px;margin-top:6px;border-radius:12px;
+    background:repeating-linear-gradient(90deg,var(--cream-2) 0 14px,#EADFC0 14px 28px);
+    border:2px solid var(--line);overflow:hidden;}
+  .truck{position:absolute;top:3px;left:1px;font-size:28px;transition:left .1s linear;transform:scaleX(-1);}
+  .stk-line{font-size:15px;color:var(--wood-dark);font-weight:700;}
+  .cost{font-size:13px;color:var(--tomato-dark);font-weight:700;}
+
+  .farm{background:linear-gradient(180deg,#EAF7E2,var(--card));}
+  .farm .pay{font-family:'Jua';color:var(--leaf-deep);font-size:15px;margin-top:2px;}
+  .farm .frmwrap{display:flex;align-items:center;justify-content:center;gap:12px;height:100%;}
+  .farm .frmwrap .ftxt{text-align:left;}
+  .farm .fe2{font-size:48px;opacity:.92;}
+  .farm .fe{position:absolute;right:14px;top:50%;transform:translateY(-50%);font-size:48px;opacity:.92;}
+  .farm.happy{box-shadow:0 0 0 4px var(--sun),0 4px 0 rgba(169,120,75,.14);}
+
+  /* 흐름 하이라이트: 완료 시 셀 테두리 반짝 */
+  .cell.flash{animation:flash .6s ease;}
+  @keyframes flash{0%{box-shadow:0 0 0 4px var(--sun)}100%{box-shadow:0 4px 0 rgba(169,120,75,.14)}}
+
+  /* 질병 방역 */
+  .cell.disease{background:repeating-linear-gradient(45deg,#F7D9D0 0 14px,#F3C7BA 14px 28px)!important;
+    border-color:var(--tomato-dark)!important;}
+  .dtag{font-family:'Jua';color:var(--tomato-dark);font-size:14px;}
+  .dtag.blink{animation:blink .5s infinite;}
+
+  .toastL{position:fixed;inset:0;pointer-events:none;z-index:40;overflow:hidden;}
+  .toast{position:absolute;font-family:'Jua';font-size:19px;color:var(--leaf-deep);
+    text-shadow:0 2px 0 #fff;animation:up 1.1s ease forwards;}
+  .toast.big{font-size:26px;color:var(--sun-dark);}
+  @keyframes up{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-48px)}}
+
+  /* 게임오버 */
+  #overScreen{text-align:center;padding:30px 10px;}
+  #overScreen h1{font-size:38px;color:var(--wood-dark);}
+  .who{font-family:'Jua';font-size:22px;color:var(--leaf-deep);margin-top:10px;}
+  .report{background:var(--card);border:3px solid var(--line);border-radius:18px;padding:16px 18px;
+    margin:16px auto;max-width:860px;text-align:left;box-shadow:0 4px 0 rgba(169,120,75,.14);}
+  .report h3{font-size:17px;color:var(--leaf-deep);margin:16px 0 8px;font-family:'Jua';}
+  .report h3:first-child{margin-top:0;}
+  .summary{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;}
+  .summary .box{background:var(--cream-2);border-radius:14px;padding:10px 20px;text-align:center;font-family:'Jua';min-width:120px;}
+  .summary .box .n{font-size:22px;color:var(--leaf-deep);}
+  .summary .box.loss .n{color:var(--tomato-dark);}
+  .summary .box .l{font-size:12px;color:var(--wood-dark);}
+  .rtable{width:100%;border-collapse:collapse;font-size:14px;}
+  .rtable th,.rtable td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line);}
+  .rtable th:first-child,.rtable td:first-child{text-align:left;}
+  .rtable th{color:var(--wood-dark);font-family:'Jua';font-weight:400;font-size:13px;}
+  .rtable .warn{color:var(--tomato-dark);font-weight:700;}
+  .rtable tfoot td{font-family:'Jua';color:var(--leaf-deep);border-top:2px solid var(--line);border-bottom:none;}
+  .insights{margin:8px 0 0;padding:0;}
+  .insights li{list-style:none;font-size:14px;margin:6px 0;line-height:1.55;}
+  .result{background:var(--card);border:4px solid var(--sun);border-radius:22px;display:inline-block;
+    padding:22px 34px;margin:16px 0;box-shadow:0 6px 0 var(--sun-dark);}
+  .result .fm{font-family:'Jua';font-size:32px;color:var(--leaf-deep);}
+  .grade{font-family:'Jua';font-size:20px;margin-top:8px;}
+
+  /* 관리자 */
+  .mask{position:fixed;inset:0;background:rgba(107,78,46,.45);display:none;align-items:center;justify-content:center;z-index:60;padding:14px;}
+  .mask.active{display:flex;}
+  .abox{background:var(--cream);border:5px solid var(--wood-dark);border-radius:24px;width:min(560px,96vw);
+    max-height:88vh;overflow:auto;padding:20px;box-shadow:0 16px 40px rgba(0,0,0,.4);}
+  .abox h2{color:var(--leaf-deep);font-size:22px;} .anote{font-size:14px;color:var(--wood-dark);margin:4px 0 12px;}
+  .grp{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px;}
+  .grp h3{font-size:16px;color:var(--wood-dark);margin-bottom:8px;}
+  .fld{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:5px 0;font-size:15px;}
+  .fld label{flex:1;} .fld input,.fld select{font-family:'Noto Sans KR',sans-serif;font-size:15px;width:120px;padding:6px;
+    border-radius:10px;border:2px solid var(--line);background:var(--cream);text-align:right;}
+  .fld select{text-align:left;}
+  .arow{display:flex;justify-content:space-between;gap:10px;}
+  .lrow{display:flex;flex-direction:column;gap:10px;margin:12px 0;}
+  .lrow input{font-family:'Noto Sans KR',sans-serif;font-size:16px;padding:10px;border-radius:12px;border:2px solid var(--line);background:var(--card);}
+  .err{color:var(--tomato-dark);font-size:14px;min-height:18px;}
+
+  @media(max-width:760px){
+    .board{grid-template-columns:1fr;}
+    .shop{grid-column:1;grid-row:auto;flex-direction:row;flex-wrap:wrap;}
+    .mat{flex:1 1 45%;}
+    .stage-h.arrowed::after{display:none;}
+    .stage-desktop{display:none;}
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+
+  <!-- ===== 시작 ===== -->
+  <section id="startScreen" class="screen active">
+    <div class="badge">🌾 임직원 교육용 시뮬레이션</div>
+    <h1>대한사료 밸류체인 타이쿤</h1>
+    <p class="sub">원료 구매부터 농장 판매까지 — 사료회사 경영 시뮬레이션</p>
+    <div class="flow">
+      <div class="step"><span class="big multi">🌽🫘🐟</span>① 원료 구매</div>
+      <span class="arrow">➜</span>
+      <div class="step"><span class="big">🏭</span>② 사료 제조</div>
+      <span class="arrow">➜</span>
+      <div class="step"><span class="big flip">🚚</span>③ 배송</div>
+      <span class="arrow">➜</span>
+      <div class="step"><span class="big multi">🐮🐷🐔🐠</span>④ 판매·입금</div>
+    </div>
+    <div class="howto">
+      <div class="info-row"><span class="lab">목표</span><span class="desc">제한 시간 <b>3분</b> 동안 원료 구매 → 제조 → 배송 → 판매로<br><b>최대한 많은 순이익</b>을 남기세요.</span></div>
+      <div class="info-row"><span class="lab">방법</span><span class="desc">원료 구매 후 공장에서 사료를 제조하고, 농장에 배송하면<br>판매 대금이 입금됩니다.</span></div>
+      <div class="info-row"><span class="lab">주의</span><span class="desc">배송을 연달아 성공하면 <b>🔥콤보 보너스</b>!<br>가끔 <b>전염병·태풍</b>으로 배송이 막혀요.</span></div>
+      <div class="info-row"><span class="lab">결과</span><span class="desc">게임이 끝나면 <b>경영 실적 리포트</b>로 성과와 개선점을 확인할 수 있어요.</span></div>
+    </div>
+    <div class="entry">
+      <input id="teamName" maxlength="20" placeholder="🏷️ 팀명 (예: 인사총무팀)">
+      <input id="playerName" maxlength="12" placeholder="🙋 이름">
+    </div>
+    <div class="start-actions">
+      <button class="btn btn-green" onclick="startGame()">🎮 게임 시작</button>
+      <button class="btn btn-wood" onclick="openLogin()">⚙️ 관리자 설정</button>
+    </div>
+  </section>
+
+  <!-- ===== 플레이 ===== -->
+  <section id="playScreen" class="screen">
+    <div class="hud">
+      <div class="money-card">
+        <span class="coin">🪙</span>
+        <div><div class="lbl">현재 잔액</div><div class="val"><span id="moneyText">0</span></div></div>
+      </div>
+      <div class="goal">
+        <div class="top"><span>🎯 목표까지</span><span id="goalText">0%</span></div>
+        <div class="bar"><i id="goalBar"></i></div>
+      </div>
+      <div class="combo" id="comboBox"></div>
+      <div class="timer" id="timerText">03:00</div>
+    </div>
+    <div class="board" id="board"></div>
+  </section>
+
+  <!-- ===== 게임오버 ===== -->
+  <section id="overScreen" class="screen">
+    <h1>🌇 영업 종료!</h1>
+    <div class="who" id="whoText"></div>
+    <div class="result">
+      <div>최종 달성 회사 자금</div>
+      <div class="fm"><span id="finalMoney">0</span></div>
+      <div class="grade" id="gradeText"></div>
+    </div>
+    <div class="report" id="reportBox"></div>
+    <div class="start-actions">
+      <button class="btn btn-green" onclick="startGame()">🔁 다시 도전</button>
+      <button class="btn btn-wood" onclick="goStart()">🏠 메인으로</button>
+    </div>
+  </section>
+</div>
+
+<!-- 관리자 -->
+<div class="mask" id="loginMask"><div class="abox">
+  <h2>⚙️ 관리자 로그인</h2><div class="anote">게임 변수(자금·단가·레시피 등)를 조정합니다.</div>
+  <div class="lrow"><input id="admId" placeholder="아이디"><input id="admPw" type="password" placeholder="비밀번호"></div>
+  <div class="err" id="loginErr"></div>
+  <div class="arow"><button class="btn btn-wood btn-sm" onclick="closeLogin()">뒤로</button>
+  <button class="btn btn-green btn-sm" onclick="tryLogin()">로그인</button></div>
+</div></div>
+<div class="mask" id="adminMask"><div class="abox">
+  <h2>⚙️ 게임 변수 설정</h2><div class="anote">숫자만 입력해 주세요. 저장하면 이 브라우저에 적용됩니다.</div>
+  <div id="adminFields"></div>
+  <div class="arow"><button class="btn btn-wood btn-sm" onclick="closeAdmin()">닫기</button>
+  <button class="btn btn-green btn-sm" onclick="saveAdmin()">💾 저장</button></div>
+</div></div>
+
+<div class="toastL" id="toastL"></div>
+<div class="flyL" id="flyL"></div>
+
+<script>
+/* ===== 데이터 ===== */
+const MAT_NAMES=["옥수수","주정박","대두박","소맥피","어분"];
+const MAT_EMO={"옥수수":"🌽","주정박":"🍺","대두박":"🫘","소맥피":"🌾","어분":"🐟"};
+const FEED_NAMES=["양돈","축우","양계","양어"];
+const FARM_NAMES=["양돈농장","축우농장","양계농장","양어농장"];
+const FARM_EMO=["🐷","🐮","🐔","🐠"];
+// 라인별 발생 가능 이벤트(질병/재해) 목록 — 발생 시 이 중 하나가 무작위로 선택됨
+const DISEASES=[
+  ["아프리카돼지열병(ASF)","구제역(FMD)"],  // 양돈
+  ["구제역(FMD)"],                          // 축우
+  ["조류독감(AI)"],                          // 양계
+  ["태풍 발생"]                              // 양어
+];
+
+const DEFAULT_SETTINGS={
+  start_money:50000000, goal_profit:5000000, buy_time:3,
+  "price_옥수수":3500000,"price_주정박":3800000,"price_대두박":6000000,"price_소맥피":2800000,"price_어분":18000000,
+  "recipe_양돈_mat1":"옥수수","recipe_양돈_amt1":6,"recipe_양돈_mat2":"대두박","recipe_양돈_amt2":4,
+  "recipe_축우_mat1":"옥수수","recipe_축우_amt1":5,"recipe_축우_mat2":"소맥피","recipe_축우_amt2":5,
+  "recipe_양계_mat1":"옥수수","recipe_양계_amt1":7,"recipe_양계_mat2":"주정박","recipe_양계_amt2":3,
+  "recipe_양어_mat1":"어분","recipe_양어_amt1":6,"recipe_양어_mat2":"대두박","recipe_양어_amt2":4,
+  make_time:[3,4,2,5], sell_price:[5250000,3850000,4350000,14700000],
+  make_cost:[300000,300000,300000,500000], ship_cost:[250000,250000,250000,400000]
+};
+let cfg=JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+
+/* ===== 상태 ===== */
+const GAME_DURATION=3*60*1000, DELIVER_TIME=3200, DISEASE_DURATION=10000, DISEASE_CHANCE=0.00035;
+const COMBO_WINDOW=6000, COMBO_STEP=0.12, COMBO_MAX_BONUS=1.0;
+let money,matStocks,feedStock,isMaking,makeStart,isDelivering,deliverStart,truckPos;
+let isBuying,buyStart,isDisease,diseaseStart,happyUntil,diseaseLabel;
+let teamName='',playerName='';
+let combo,lastDeliverTick,goalReached,gameStartTick,rafId,firstBuyDone;
+let stat;  // 경영 실적 기록
+let running=false;  // 게임 진행 중 여부(종료 후 애니메이션 생성 차단)
+
+function resetGame(){
+  money=cfg.start_money;
+  matStocks={};MAT_NAMES.forEach(m=>matStocks[m]=50);
+  feedStock=[0,0,0,0];
+  isMaking=[0,0,0,0];makeStart=[0,0,0,0];
+  isDelivering=[0,0,0,0];deliverStart=[0,0,0,0];truckPos=[0,0,0,0];
+  isBuying={};buyStart={};MAT_NAMES.forEach(m=>{isBuying[m]=0;buyStart[m]=0;});
+  isDisease=[0,0,0,0];diseaseStart=[0,0,0,0];happyUntil=[0,0,0,0];diseaseLabel=['','','',''];
+  combo=0;lastDeliverTick=0;goalReached=false;firstBuyDone=false;
+  stat={matTons:{},matCost:{},madeTons:[0,0,0,0],makeCost:[0,0,0,0],
+        shipTons:[0,0,0,0],shipCost:[0,0,0,0],revenue:[0,0,0,0],comboBonus:0};
+  MAT_NAMES.forEach(m=>{stat.matTons[m]=0;stat.matCost[m]=0;});
+}
+function recipeOf(i){const f=FEED_NAMES[i];
+  return [{mat:cfg["recipe_"+f+"_mat1"],amt:cfg["recipe_"+f+"_amt1"]},
+          {mat:cfg["recipe_"+f+"_mat2"],amt:cfg["recipe_"+f+"_amt2"]}];}
+// 금액을 만원 단위로 표시 (1,500,000 -> 150만원)
+function man(v){return Math.round(v/10000).toLocaleString()+'만원';}
+
+/* ===== 화면 ===== */
+function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');}
+function goStart(){cancelAnimationFrame(rafId);show('startScreen');}
+function startGame(){
+  teamName=(document.getElementById('teamName').value||'').trim();
+  playerName=(document.getElementById('playerName').value||'').trim();
+  resetGame();buildBoard();show('playScreen');
+  running=true;
+  gameStartTick=performance.now();cancelAnimationFrame(rafId);loop();}
+
+/* ===== 보드 생성 ===== */
+function buildBoard(){
+  const b=document.getElementById('board');
+  b.innerHTML='';
+  // 단계 헤더 4개
+  const heads=[['1','원료 구매'],['2','사료 제조'],['3','배송'],['4','판매·입금']];
+  heads.forEach((h,idx)=>{
+    const d=document.createElement('div');
+    d.className='stage-h'+(idx<3?' arrowed':'');
+    d.innerHTML=`<span class="num">${h[0]}</span>${h[1]}`;
+    d.style.gridColumn=(idx+1); d.style.gridRow=1;
+    b.appendChild(d);
+  });
+  // 원료 상점 (왼쪽 세로, 4행 span)
+  const shop=document.createElement('div');
+  shop.className='shop';
+  shop.innerHTML=
+    MAT_NAMES.map(m=>`
+      <div class="mat" id="mat-${m}">
+        <div class="mtop">
+          <span class="e">${MAT_EMO[m]}</span>
+          <div class="info"><div class="nm">${m}</div>
+            <div class="stk" id="stk-${m}">재고 0t</div></div>
+        </div>
+        <button class="buybtn" id="buy-${m}" onclick="buyMat('${m}')">구매</button>
+        <div class="importbox" id="imp-${m}" style="display:none">
+          <div class="impmsg">🚢 수입 중...</div>
+          <div class="sea"><span class="boat">🚢</span></div>
+        </div>
+      </div>`).join('');
+  b.appendChild(shop);
+  // 4개 라인 (공장/배송/농장) — 구조는 한 번만 생성, 이후엔 값만 갱신
+  for(let i=0;i<4;i++){
+    const factory=document.createElement('div');
+    factory.className='cell factory';factory.id='fac-'+i;
+    factory.style.gridColumn=2;factory.style.gridRow=i+2;
+    factory.innerHTML=`
+      <div class="ttl"><span class="e">🏭</span>${FEED_NAMES[i]} 공장</div>
+      <div id="facidle-${i}">
+        <div class="recipe" id="rec-${i}"></div>
+        <div class="cost">제조비 -${man(cfg.make_cost[i])}</div>
+        <button class="miniact bmake" id="mk-${i}" onclick="makeFeed(${i})">🥣 제조</button>
+      </div>
+      <div id="facwork-${i}" style="display:none">
+        <div class="recipe" style="color:var(--sun-dark)"><b>🔥 가동중...</b></div>
+        <div class="bar"><i id="facbar-${i}"></i></div>
+      </div>`;
+    b.appendChild(factory);
+
+    const ship=document.createElement('div');
+    ship.className='cell ship';ship.id='shp-'+i;
+    ship.style.gridColumn=3;ship.style.gridRow=i+2;
+    ship.innerHTML=`
+      <div class="ttl"><span class="e">🚚</span>${FEED_NAMES[i]} 배송</div>
+      <div id="shpnorm-${i}">
+        <div class="stk-line" id="feedstk-${i}">보유 🥣 0t</div>
+        <div class="cost">배송비 -${man(cfg.ship_cost[i])}</div>
+        <button class="miniact bship" id="sh-${i}" onclick="shipFeed(${i})">📦 배송</button>
+      </div>
+      <div id="shpdeliver-${i}" style="display:none">
+        <div class="road"><span class="truck" id="truck-${i}">🚚</span></div>
+      </div>
+      <div id="shpdisease-${i}" style="display:none">
+        <div class="dtag blink" id="dtag-${i}">🚨 방역 통제 중</div>
+        <div class="bar dbar" style="width:80%;margin:8px auto 0"><i id="dbar-${i}"></i></div>
+      </div>`;
+    b.appendChild(ship);
+
+    const farm=document.createElement('div');
+    farm.className='cell farm';farm.id='frm-'+i;
+    farm.style.gridColumn=4;farm.style.gridRow=i+2;
+    farm.innerHTML=`
+      <div id="frmnorm-${i}" class="frmwrap">
+        <div class="ftxt">
+          <div class="ttl">${FARM_NAMES[i]}</div>
+          <div class="pay">+${man(cfg.sell_price[i])}</div>
+        </div>
+        <span class="fe2">${FARM_EMO[i]}</span>
+      </div>
+      <div id="frmdisease-${i}" style="display:none">
+        <span class="fe" id="dfe-${i}">⚠️</span>
+        <div class="ttl">${FARM_NAMES[i]}</div>
+        <div class="dtag blink" id="dname-${i}"></div>
+        <div class="stk-line">출하 중단</div>
+      </div>`;
+    b.appendChild(farm);
+  }
+}
+function showBlock(id){document.getElementById(id).style.display='';}
+function hideBlock(id){document.getElementById(id).style.display='none';}
+
+/* ===== 액션 ===== */
+function buyMat(m){const price=cfg["price_"+m];
+  if(isBuying[m]||money<price)return;
+  money-=price;isBuying[m]=1;buyStart[m]=performance.now();firstBuyDone=true;
+  stat.matTons[m]+=10;stat.matCost[m]+=price;}
+function makeFeed(i){if(isMaking[i])return;const rec=recipeOf(i);
+  if(rec.some(r=>(matStocks[r.mat]||0)<r.amt))return;
+  if(money<cfg.make_cost[i])return;                 // 제조비 부족
+  money-=cfg.make_cost[i];                           // 제조비 차감
+  stat.makeCost[i]+=cfg.make_cost[i];
+  rec.forEach(r=>matStocks[r.mat]-=r.amt);isMaking[i]=1;makeStart[i]=performance.now();
+  flyMaterials(i,rec);}
+function flyMaterials(i,rec){
+  const fac=document.getElementById('fac-'+i);if(!fac)return;
+  const fr=fac.getBoundingClientRect();
+  // 원료를 하나씩 순차적으로 크게 보여주며 공장으로 이동
+  rec.forEach((r,idx)=>{
+    const src=document.getElementById('mat-'+r.mat);if(!src)return;
+    const s=src.getBoundingClientRect();
+    setTimeout(()=>{
+      if(!running)return;
+      src.classList.remove('used');void src.offsetWidth;src.classList.add('used');
+      const el=document.createElement('div');el.className='fly';
+      el.innerHTML=`<span class="e2">${MAT_EMO[r.mat]||''}</span> ${r.mat}`;
+      el.style.left=(s.left+s.width/2-40)+'px';
+      el.style.top=(s.top+s.height/2-20)+'px';
+      el.style.opacity='0';el.style.transform='scale(.6)';
+      document.getElementById('flyL').appendChild(el);
+      requestAnimationFrame(()=>{
+        el.style.left=(fr.left+16)+'px';
+        el.style.top=(fr.top+fr.height/2-20)+'px';
+        el.style.opacity='1';el.style.transform='scale(1.06)';
+      });
+      setTimeout(()=>{el.remove();flash('fac-'+i);},1100);
+    }, idx*280);
+  });
+}
+// 사료 포대(지대) 모양 — 축종별 색 + 동물 라벨 + 10t 배지
+const BAG=[{c:'#F4A0B5',d:'#D97A93'},{c:'#C79A6A',d:'#A9784B'},{c:'#F7C948',d:'#E0A82E'},{c:'#7FB8D8',d:'#5A93B5'}];
+function feedBagHTML(i){
+  return `<div class="feedbag">
+    <div class="bag-top" style="background:${BAG[i].d}"></div>
+    <div class="bag-body" style="background:${BAG[i].c}"><div class="bag-label">${FARM_EMO[i]}</div></div>
+    <div class="bag-qty">10t</div>
+  </div>`;
+}
+// 배송 시 사료 포대가 공장 -> 농장으로 이동
+function flyFeed(i){
+  if(!running)return;
+  const fac=document.getElementById('fac-'+i);
+  const frm=document.getElementById('frm-'+i);
+  if(!fac||!frm)return;
+  const s=fac.getBoundingClientRect();
+  const f=frm.getBoundingClientRect();
+  const el=document.createElement('div');el.className='fly feed';
+  el.innerHTML=feedBagHTML(i);
+  el.style.left=(s.left+s.width/2-20)+'px';
+  el.style.top=(s.top+s.height/2-24)+'px';
+  el.style.opacity='0';el.style.transform='scale(.6)';
+  document.getElementById('flyL').appendChild(el);
+  requestAnimationFrame(()=>{
+    el.style.left=(f.left+f.width/2-20)+'px';
+    el.style.top=(f.top+f.height/2-24)+'px';
+    el.style.opacity='1';el.style.transform='scale(1.1)';
+  });
+  setTimeout(()=>{el.remove();flash('frm-'+i);},1150);
+}
+function shipFeed(i){if(feedStock[i]<10||isDelivering[i]||isDisease[i])return;
+  if(money<cfg.ship_cost[i])return;                 // 배송비 부족
+  money-=cfg.ship_cost[i];                           // 배송비 차감
+  stat.shipTons[i]+=10;stat.shipCost[i]+=cfg.ship_cost[i];
+  feedStock[i]-=10;isDelivering[i]=1;deliverStart[i]=performance.now();truckPos[i]=0;
+  flyFeed(i);}
+
+/* ===== 루프 ===== */
+function loop(){
+  const now=performance.now();
+  let left=GAME_DURATION-(now-gameStartTick);
+  if(left<=0){left=0;endGame();return;}
+  // 원료 입고
+  MAT_NAMES.forEach(m=>{if(isBuying[m]&&now-buyStart[m]>=cfg.buy_time*1000){isBuying[m]=0;matStocks[m]+=10;}});
+  // 콤보 감쇠
+  if(combo>0 && now-lastDeliverTick>COMBO_WINDOW) combo=0;
+  // 라인
+  for(let i=0;i<4;i++){
+    if(!isDisease[i]&&Math.random()<DISEASE_CHANCE){isDisease[i]=1;diseaseStart[i]=now;
+      diseaseLabel[i]=DISEASES[i][Math.floor(Math.random()*DISEASES[i].length)];}
+    if(isDisease[i]&&now-diseaseStart[i]>=DISEASE_DURATION)isDisease[i]=0;
+    if(isMaking[i]&&now-makeStart[i]>=cfg.make_time[i]*1000){isMaking[i]=0;feedStock[i]+=10;
+      flash('fac-'+i);stat.madeTons[i]+=10;}
+    if(isDelivering[i]){
+      truckPos[i]=Math.min(1,(now-deliverStart[i])/DELIVER_TIME);
+      if(now-deliverStart[i]>=DELIVER_TIME){
+        isDelivering[i]=0;
+        // 콤보 처리
+        combo=(now-lastDeliverTick<=COMBO_WINDOW)?combo+1:1;
+        lastDeliverTick=now;
+        const bonus=Math.min(COMBO_MAX_BONUS,(combo-1)*COMBO_STEP);
+        const earn=Math.round(cfg.sell_price[i]*(1+bonus));
+        money+=earn;happyUntil[i]=now+900;flash('frm-'+i);
+        stat.revenue[i]+=earn;stat.comboBonus+=(earn-cfg.sell_price[i]);
+        toast(i,"+"+man(earn)+" 💛"+(bonus>0?` 🔥+${Math.round(bonus*100)}%`:""));
+      }
+    }
+  }
+  // 목표 달성
+  if(!goalReached && money-cfg.start_money>=cfg.goal_profit){goalReached=true;bigToast("🎉 목표 달성! 계속 벌어보세요!");}
+  render(now,left);
+  rafId=requestAnimationFrame(loop);
+}
+
+/* ===== 렌더 ===== */
+function render(now,left){
+  document.getElementById('moneyText').textContent=man(money);
+  const sec=Math.floor(left/1000),mm=String(Math.floor(sec/60)).padStart(2,'0'),ss=String(sec%60).padStart(2,'0');
+  const tm=document.getElementById('timerText');tm.textContent=`${mm}:${ss}`;tm.classList.toggle('warn',sec<30);
+  // 목표바
+  const prog=Math.max(0,Math.min(1,(money-cfg.start_money)/cfg.goal_profit));
+  document.getElementById('goalBar').style.width=(prog*100)+'%';
+  document.getElementById('goalText').textContent=goalReached?'달성! 🎉':Math.floor(prog*100)+'%';
+  // 콤보
+  const cb=document.getElementById('comboBox');
+  if(combo>1){cb.textContent=`🔥 콤보 x${combo}`;cb.classList.add('on');}
+  else{cb.classList.remove('on');cb.textContent='';}
+  // 원료 상점
+  const cheapestAffordable=MAT_NAMES.filter(m=>money>=cfg["price_"+m]).sort((a,b)=>cfg["price_"+a]-cfg["price_"+b])[0];
+  MAT_NAMES.forEach(m=>{
+    document.getElementById('stk-'+m).textContent='재고 '+matStocks[m]+'t';
+    document.getElementById('mat-'+m).classList.toggle('low',matStocks[m]<10);
+    const price=cfg['price_'+m];
+    const btn=document.getElementById('buy-'+m);
+    const imp=document.getElementById('imp-'+m);
+    if(isBuying[m]){
+      btn.style.display='none';
+      imp.style.display='';
+      const sea=imp.querySelector('.sea');
+      const p=Math.min(1,(now-buyStart[m])/(cfg.buy_time*1000));
+      imp.querySelector('.boat').style.left=(p*(sea.clientWidth-20))+'px';
+    }else{
+      imp.style.display='none';
+      btn.style.display='';
+      const afford=money>=price;
+      btn.disabled=!afford;
+      btn.textContent=afford?('구매  -'+Math.round(price/10000)+'만원'):'자금 부족';
+      btn.classList.toggle('hint',afford && !firstBuyDone && m===cheapestAffordable);
+    }
+  });
+  // 라인
+  for(let i=0;i<4;i++){
+    const rec=recipeOf(i);
+    // 공장
+    const fac=document.getElementById('fac-'+i);
+    if(isMaking[i]){
+      fac.classList.add('on');
+      hideBlock('facidle-'+i);showBlock('facwork-'+i);
+      document.getElementById('facbar-'+i).style.width=Math.min(100,(now-makeStart[i])/(cfg.make_time[i]*1000)*100)+'%';
+    }else{
+      fac.classList.remove('on');
+      showBlock('facidle-'+i);hideBlock('facwork-'+i);
+      const hasMat=rec.every(r=>(matStocks[r.mat]||0)>=r.amt);
+      const hasCash=money>=cfg.make_cost[i];
+      const can=hasMat&&hasCash;
+      document.getElementById('rec-'+i).innerHTML=
+        rec.map(r=>`<span class="${(matStocks[r.mat]||0)<r.amt?'lack':''}">${MAT_EMO[r.mat]||''}${r.amt}</span>`).join(' + ')
+        +` <span class="out">→ 🥣10t</span>`;
+      const mk=document.getElementById('mk-'+i);mk.disabled=!can;mk.classList.toggle('ready',can);
+      mk.textContent = !hasMat ? '원료 재고 없음' : (!hasCash ? '자금 부족' : '🥣 제조');
+    }
+    // 배송
+    const shp=document.getElementById('shp-'+i);shp.classList.remove('disease');
+    if(isDisease[i]){
+      shp.classList.add('disease');
+      hideBlock('shpnorm-'+i);hideBlock('shpdeliver-'+i);showBlock('shpdisease-'+i);
+      const isTy=diseaseLabel[i].includes('태풍');
+      document.getElementById('dtag-'+i).textContent = isTy ? '🌀 태풍 출하중단' : '🚨 방역 통제 중';
+      // 남은 통제 시간을 줄어드는 바로 표시
+      document.getElementById('dbar-'+i).style.width=Math.max(0,(DISEASE_DURATION-(now-diseaseStart[i]))/DISEASE_DURATION*100)+'%';
+    }else if(isDelivering[i]){
+      hideBlock('shpnorm-'+i);showBlock('shpdeliver-'+i);hideBlock('shpdisease-'+i);
+      document.getElementById('truck-'+i).style.left=(truckPos[i]*100)+'%';
+    }else{
+      showBlock('shpnorm-'+i);hideBlock('shpdeliver-'+i);hideBlock('shpdisease-'+i);
+      document.getElementById('feedstk-'+i).textContent='보유 🥣 '+feedStock[i]+'t';
+      const hasFeed=feedStock[i]>=10, canShip=hasFeed&&money>=cfg.ship_cost[i];
+      const sh=document.getElementById('sh-'+i);sh.disabled=!canShip;sh.classList.toggle('ready',canShip);
+      sh.textContent = (hasFeed&&money<cfg.ship_cost[i]) ? '자금 부족' : '📦 배송';
+    }
+    // 농장
+    const frm=document.getElementById('frm-'+i);
+    if(isDisease[i]){
+      frm.classList.add('disease');frm.classList.remove('happy');
+      hideBlock('frmnorm-'+i);showBlock('frmdisease-'+i);
+      document.getElementById('dname-'+i).textContent=diseaseLabel[i];
+      document.getElementById('dfe-'+i).textContent=diseaseLabel[i].includes('태풍')?'🌀':'⚠️';
+    }else{
+      frm.classList.remove('disease');
+      showBlock('frmnorm-'+i);hideBlock('frmdisease-'+i);
+      frm.classList.toggle('happy',now<happyUntil[i]);
+    }
+  }
+}
+function flash(id){const el=document.getElementById(id);if(!el)return;el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');}
+function toast(i,text){
+  const layer=document.getElementById('toastL');
+  const r=document.getElementById('frm-'+i).getBoundingClientRect();
+  const t=document.createElement('div');t.className='toast';t.textContent=text;
+  t.style.left=(r.left+20)+'px';t.style.top=(r.top+6)+'px';
+  layer.appendChild(t);setTimeout(()=>t.remove(),1100);}
+function bigToast(text){
+  const layer=document.getElementById('toastL');
+  const t=document.createElement('div');t.className='toast big';t.textContent=text;
+  t.style.left='50%';t.style.top='120px';t.style.transform='translateX(-50%)';
+  layer.appendChild(t);setTimeout(()=>t.remove(),1400);}
+
+/* ===== 게임오버 ===== */
+function endGame(){cancelAnimationFrame(rafId);running=false;
+  document.getElementById('flyL').innerHTML='';document.getElementById('toastL').innerHTML='';
+  document.getElementById('finalMoney').textContent=man(money);
+  const profit=money-cfg.start_money;let g;
+  if(profit>=cfg.goal_profit*1.5)g="🏆 대표이사님 감동! S등급";
+  else if(profit>=cfg.goal_profit)g="🥇 목표 달성! A등급";
+  else if(profit>=cfg.goal_profit*0.5)g="🥈 무난한 흑자! B등급";
+  else if(profit>=0)g="🥉 본전 사수! C등급";
+  else g="😅 적자 발생... 다시 도전!";
+  document.getElementById('gradeText').textContent=`순이익 ${man(profit)} · ${g}`;
+  const who=[teamName,playerName].filter(Boolean).join(' · ');
+  document.getElementById('whoText').textContent=who?`🏷️ ${who}`:'';
+  document.getElementById('reportBox').innerHTML=buildReport(profit);
+  show('overScreen');}
+  const parent = window.parent;
+  const hiddenInput = parent.document.querySelector('input[aria-label="hidden_tycoon_data"]');
+  
+  if (hiddenInput && !sessionStorage.getItem('tycoonScoreSent')) {
+      const dataObj = { name: playerName, team: teamName, profit: profit };
+      let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      nativeInputValueSetter.call(hiddenInput, JSON.stringify(dataObj));
+      hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+      
+      setTimeout(() => {
+          hiddenInput.focus();
+          hiddenInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }));
+          hiddenInput.blur();
+      }, 100);
+      sessionStorage.setItem('tycoonScoreSent', 'true');
+  }
+}
+
+  
+// ===== 최종 경영 실적 리포트 =====
+function buildReport(profit){
+  // 원료 구매 표
+  let totBuy=0, matRows='';
+  MAT_NAMES.forEach(m=>{
+    totBuy+=stat.matCost[m];
+    const bought=stat.matTons[m], left=matStocks[m];
+    const leftWarn=(bought>0 && left>=30);   // 사놓고 거의 못 쓴 원료
+    matRows+=`<tr><td>${MAT_EMO[m]} ${m}</td><td>${bought}t</td><td>${man(stat.matCost[m])}</td>`
+      +`<td class="${leftWarn?'warn':''}">${left}t</td></tr>`;
+  });
+  // 라인별 표
+  let totRev=0,totMake=0,totShip=0,totMade=0,totShipT=0, lineRows='';
+  FEED_NAMES.forEach((f,i)=>{
+    totRev+=stat.revenue[i];totMake+=stat.makeCost[i];totShip+=stat.shipCost[i];
+    totMade+=stat.madeTons[i];totShipT+=stat.shipTons[i];
+    const feedLeft=feedStock[i], leftWarn=feedLeft>=10;  // 만들고 못 보낸 사료
+    lineRows+=`<tr><td>${FARM_EMO[i]} ${f}</td><td>${stat.madeTons[i]}t</td><td>${man(stat.makeCost[i])}</td>`
+      +`<td>${stat.shipTons[i]}t</td><td>${man(stat.shipCost[i])}</td><td>${man(stat.revenue[i])}</td>`
+      +`<td class="${leftWarn?'warn':''}">${feedLeft}t</td></tr>`;
+  });
+  const totCost=totBuy+totMake+totShip;
+  // 경영 진단
+  const ins=[];
+  if(totMade===0) ins.push('⚠️ 사료를 한 번도 제조하지 못했습니다. 원료를 사서 <b>제조</b> 버튼을 눌러보세요.');
+  const unsold=[];FEED_NAMES.forEach((f,i)=>{if(feedStock[i]>=10)unsold.push(`${f} ${feedStock[i]}t`);});
+  if(unsold.length) ins.push(`📦 만들어 놓고 <b>배송하지 못한 사료</b>가 남았습니다 (${unsold.join(', ')}). 제조 속도에 비해 배송이 밀렸어요 — 배송을 더 자주 처리해야 재고가 현금이 됩니다.`);
+  else if(totShipT>0) ins.push('✅ 만든 사료를 거의 다 배송했습니다. 제조–배송 흐름이 안정적이었어요.');
+  const idleMat=MAT_NAMES.filter(m=>stat.matTons[m]>0 && matStocks[m]>=30);
+  if(idleMat.length) ins.push(`🌽 <b>사놓고 거의 못 쓴 원료</b>가 있습니다 (${idleMat.map(m=>m+' '+matStocks[m]+'t').join(', ')}). 원료 구매가 제조로 이어지지 못하면 자금만 묶입니다.`);
+  if(stat.comboBonus>0) ins.push(`🔥 <b>콤보 보너스</b>로 정상가보다 ${man(stat.comboBonus)}을 더 벌었습니다. 배송을 끊김 없이 이어가는 게 수익의 핵심이에요.`);
+  const best=stat.revenue.indexOf(Math.max(...stat.revenue));
+  if(stat.revenue[best]>0) ins.push(`🏆 최대 매출 라인은 <b>${FEED_NAMES[best]}</b> (${man(stat.revenue[best])})였습니다.`);
+  if(profit<0) ins.push('📉 순이익이 <b>적자</b>입니다. 원료를 제값에 사서 만든 사료를 콤보로 빠르게 팔아야 얇은 마진을 넘길 수 있어요.');
+  else if(profit>=cfg.goal_profit) ins.push('🎉 목표 순이익을 <b>달성</b>했습니다. 얇은 마진 구조에서 회전율을 잘 살렸네요!');
+  if(!ins.length) ins.push('사료를 만들어 배송해 보며 경영 흐름을 익혀보세요.');
+
+  return `
+    <h3>📊 종합 성적</h3>
+    <div class="summary">
+      <div class="box"><div class="n">${man(totRev)}</div><div class="l">총 매출</div></div>
+      <div class="box"><div class="n">${man(totCost)}</div><div class="l">총 비용</div></div>
+      <div class="box ${profit<0?'loss':''}"><div class="n">${man(profit)}</div><div class="l">순이익</div></div>
+    </div>
+    <h3>🌽 원료 구매</h3>
+    <table class="rtable">
+      <thead><tr><th>원료</th><th>구입량</th><th>구입액</th><th>남은재고</th></tr></thead>
+      <tbody>${matRows}</tbody>
+      <tfoot><tr><td>합계</td><td></td><td>${man(totBuy)}</td><td></td></tr></tfoot>
+    </table>
+    <h3>🏭 제조 · 배송 · 판매 (축종별)</h3>
+    <table class="rtable">
+      <thead><tr><th>라인</th><th>제조량</th><th>제조비</th><th>배송량</th><th>배송비</th><th>판매수익</th><th>남은사료</th></tr></thead>
+      <tbody>${lineRows}</tbody>
+      <tfoot><tr><td>합계</td><td>${totMade}t</td><td>${man(totMake)}</td><td>${totShipT}t</td><td>${man(totShip)}</td><td>${man(totRev)}</td><td></td></tr></tfoot>
+    </table>
+    <h3>📋 경영 진단</h3>
+    <ul class="insights">${ins.map(x=>`<li>${x}</li>`).join('')}</ul>`;
+}
+
+/* ===== 관리자 ===== */
+function openLogin(){document.getElementById('loginErr').textContent='';document.getElementById('admId').value='';
+  document.getElementById('admPw').value='';document.getElementById('loginMask').classList.add('active');}
+function closeLogin(){document.getElementById('loginMask').classList.remove('active');}
+function tryLogin(){const id=document.getElementById('admId').value,pw=document.getElementById('admPw').value;
+  if(id==='admin'&&pw==='dhfeed1947'){closeLogin();openAdmin();}
+  else document.getElementById('loginErr').textContent='아이디 또는 비밀번호가 틀렸습니다.';}
+function openAdmin(){
+  let h='';
+  h+=`<div class="grp"><h3>🏢 공통 설정</h3>${fld('초기 자본금(원)','start_money',cfg.start_money)}
+    ${fld('목표 순이익(원)','goal_profit',cfg.goal_profit)}${fld('원료 구매 시간(초)','buy_time',cfg.buy_time)}</div>`;
+  h+=`<div class="grp"><h3>🌽 원료 단가(10톤,원)</h3>`;MAT_NAMES.forEach(m=>h+=fld(m,'price_'+m,cfg['price_'+m]));h+=`</div>`;
+  FEED_NAMES.forEach((f,i)=>{h+=`<div class="grp"><h3>${FARM_EMO[i]} ${f} 라인</h3>
+    ${fld('제조 소요시간(초)','make_time_'+i,cfg.make_time[i])}${fld('판매 금액(원)','sell_price_'+i,cfg.sell_price[i])}
+    ${fld('제조비(원/10톤)','make_cost_'+i,cfg.make_cost[i])}${fld('배송비(원/10톤)','ship_cost_'+i,cfg.ship_cost[i])}
+    ${sel('원료1','recipe_'+f+'_mat1',cfg['recipe_'+f+'_mat1'])}${fld('원료1 투입(톤)','recipe_'+f+'_amt1',cfg['recipe_'+f+'_amt1'])}
+    ${sel('원료2','recipe_'+f+'_mat2',cfg['recipe_'+f+'_mat2'])}${fld('원료2 투입(톤)','recipe_'+f+'_amt2',cfg['recipe_'+f+'_amt2'])}</div>`;});
+  document.getElementById('adminFields').innerHTML=h;
+  document.getElementById('adminMask').classList.add('active');}
+function fld(l,k,v){return `<div class="fld"><label>${l}</label><input data-key="${k}" value="${v}"></div>`;}
+function sel(l,k,v){return `<div class="fld"><label>${l} 이름</label><select data-key="${k}">${
+  MAT_NAMES.map(m=>`<option value="${m}" ${m===v?'selected':''}>${MAT_EMO[m]} ${m}</option>`).join('')}</select></div>`;}
+function closeAdmin(){document.getElementById('adminMask').classList.remove('active');}
+function saveAdmin(){
+  const t={};document.querySelectorAll('#adminFields [data-key]').forEach(el=>t[el.dataset.key]=el.value);
+  try{cfg.start_money=parseInt(t.start_money);cfg.goal_profit=parseInt(t.goal_profit);cfg.buy_time=parseFloat(t.buy_time);
+    MAT_NAMES.forEach(m=>cfg['price_'+m]=parseInt(t['price_'+m]));
+    FEED_NAMES.forEach((f,i)=>{cfg.make_time[i]=parseFloat(t['make_time_'+i]);cfg.sell_price[i]=parseInt(t['sell_price_'+i]);
+      cfg.make_cost[i]=parseInt(t['make_cost_'+i]);cfg.ship_cost[i]=parseInt(t['ship_cost_'+i]);
+      cfg['recipe_'+f+'_mat1']=t['recipe_'+f+'_mat1'];cfg['recipe_'+f+'_amt1']=parseInt(t['recipe_'+f+'_amt1']);
+      cfg['recipe_'+f+'_mat2']=t['recipe_'+f+'_mat2'];cfg['recipe_'+f+'_amt2']=parseInt(t['recipe_'+f+'_amt2']);});
+    if(Object.values(cfg).some(v=>typeof v==='number'&&isNaN(v)))throw'nan';
+    closeAdmin();alert('설정이 저장되었습니다! (다음 게임부터 적용)');
+  }catch(e){alert('숫자 항목은 숫자로 입력해 주세요.');}}
+
+goStart();
+</script>
+</body>
+</html>
