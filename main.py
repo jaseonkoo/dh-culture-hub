@@ -163,7 +163,7 @@ if st.session_state.page == "home":
         test_pw = c_pw.text_input("비밀번호", type="password", key="tycoon_pw", label_visibility="collapsed", placeholder="비밀번호 입력")
         
         if c_btn.button("입장하기", key="btn_tycoon", use_container_width=True):
-            if test_pw == "koolee317":  # 👈 여기에 원하시는 테스트용 비밀번호를 적어주세요.
+            if test_pw == "dhfeedhr":  # 👈 여기에 원하시는 테스트용 비밀번호를 적어주세요.
                 go_to("tycoon")
             elif test_pw == "":
                 st.warning("비밀번호를 입력해 주세요.")
