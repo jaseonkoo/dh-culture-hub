@@ -98,6 +98,8 @@ def run_tycoon_game():
             
         board_data = get_tycoon_leaderboard()
         
+        # (앞부분 코드 생략) ...
+        
         if not board_data:
             st.info("아직 등록된 경영 실적이 없습니다. 첫 번째 최고 경영자에 도전하세요!")
         else:
@@ -113,14 +115,18 @@ def run_tycoon_game():
             cols = [c1, c2, c3]
             
             for i in range(min(len(top3), 3)):
-                profit_str = format(int(top3[i].get('순이익(원)', 0)), ',')
+                # [수정 1] + 기호를 자동으로 붙여주는 포맷팅(:+,) 사용
+                profit_val = int(top3[i].get('순이익(원)', 0))
+                profit_str = f"{profit_val:+,}" 
+                
                 with cols[i]:
                     st.markdown(f"""
                     <div style="border: 2px solid #efefef; padding: 25px 10px; border-radius: 15px; background-color: #ffffff; box-shadow: 0 4px 12px rgba(0,0,0,0.08); text-align: center; display: block; width: 100%;">
                         <div class="{medals[i][1]}" style="width: 100%; text-align: center; margin-bottom: 12px;">{medals[i][0]}</div>
                         <div style="width: 100%; text-align: center; font-size: 1.6em; font-weight: 800; color: #1e293b; margin-bottom: 4px;">{top3[i].get('이름', '-')}</div>
                         <div style="width: 100%; text-align: center; font-size: 1.0em; color: #64748b; margin-bottom: 15px; font-weight: 500;">{top3[i].get('소속팀', '-')}</div>
-                        <div style="width: 100%; text-align: center; font-size: 1.5em; font-weight: bold; color: #4CAF50; background-color: #E8F5E9; border-radius: 8px; padding: 5px 0;">+{profit_str}원</div>
+                        <!-- [수정 2] 하드코딩된 '+' 제거하고 {profit_str}만 출력 -->
+                        <div style="width: 100%; text-align: center; font-size: 1.5em; font-weight: bold; color: #4CAF50; background-color: #E8F5E9; border-radius: 8px; padding: 5px 0;">{profit_str}원</div>
                     </div>
                     """, unsafe_allow_html=True)
             
@@ -132,8 +138,8 @@ def run_tycoon_game():
                 df.index.name = "순위"
                 df = df[['이름', '소속팀', '순이익(원)', '달성일']]
                 
-                # 금액에 콤마 포맷 적용
-                df['순이익(원)'] = df['순이익(원)'].apply(lambda x: f"{format(int(str(x).replace(',','')), ',')}원")
+                # [수정 3] 4위 이하 리스트도 양수/음수 기호가 일관되게 나오도록 :+, 포맷 적용
+                df['순이익(원)'] = df['순이익(원)'].apply(lambda x: f"{int(str(x).replace(',','')):+,}원")
                 
                 styled_df = df.style.set_properties(**{
                     'text-align': 'center', 'font-family': 'sans-serif'
