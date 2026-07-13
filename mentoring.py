@@ -183,6 +183,34 @@ END:VCALENDAR"""
             st.error(f"⚠️ 캘린더 일정 삭제 에러: {e}")
             return False
             
+    # ✨ [추가] 과거 미예약 캘린더 일정 자동 삭제 함수
+    def auto_cleanup_past_dooray_events():
+        today_str = str(datetime.date.today())
+        # 속도 저하를 막기 위해 해당 세션에서는 하루에 한 번만 백그라운드 체크 실행
+        if st.session_state.get('m_last_cal_cleanup') == today_str:
+            return 
+            
+        try:
+            my_calendar = get_dooray_calendar()
+            if not my_calendar: return
+            
+            # 30일 전부터 ~ 어제 자정(오늘 시작 전)까지의 일정 검색
+            start_dt = datetime.datetime.now() - datetime.timedelta(days=30)
+            end_dt = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+            
+            events = my_calendar.date_search(start=start_dt, end=end_dt)
+            for event in events:
+                # 캘린더 데이터 내에 '[예약가능]' 태그가 있는 경우에만 삭제 ([승인완료]는 통과)
+                if "[예약가능]" in event.data:
+                    event.delete()
+                    
+            st.session_state.m_last_cal_cleanup = today_str
+        except Exception as e:
+            pass # 백그라운드 자동 정리는 에러가 나도 사용자에게 알리지 않고 조용히 넘어갑니다.
+
+    # 🚀 페이지 로드 시 백그라운드 자동 정리 실행
+    auto_cleanup_past_dooray_events()
+
     # =========================================================
 
     def send_telegram_noti(mentor_name, date, start, end, location):
@@ -572,10 +600,9 @@ END:VCALENDAR"""
                         st.session_state.mentors_data.pop(i)
                         if safe_save("mentors", st.session_state.mentors_data): fetch_latest_data(force=True); st.rerun()
                     st.divider()
-# --- (기존 멘토 수정/삭제 코드 밑에 아래 내용을 추가하세요) ---
             
-            with st.expander("🛠️ 시스템 관리 (기존 일정 캘린더 일괄 등록)"):
-                st.info("💡 캘린더 연동 기능이 적용되기 전에 등록된 '예약 가능' 및 '승인 완료' 일정들을 두레이 캘린더로 일괄 전송합니다.")
+            with st.expander("🛠️ 시스템 관리 (기존 일정 캘린더 일괄 등록 및 정리)"):
+                st.info("💡 캘린더 연동 기능이 적용되기 전에 등록된 '예약 가능' 및 '승인 완료' 일정들을 두레이 캘린더로 일괄 전송하거나, 과거의 미예약 일정을 수동으로 즉시 정리할 수 있습니다.")
                 st.warning("🚨 주의: 버튼을 여러 번 누르면 캘린더에 일정이 중복으로 등록될 수 있으니 딱 한 번만 눌러주세요!")
                 
                 if st.button("🔄 캘린더 일괄 동기화 실행", type="primary", use_container_width=True):
@@ -597,3 +624,25 @@ END:VCALENDAR"""
                         
                         sync_status.update(label=f"✅ 총 {success_count}건의 일정이 두레이 캘린더에 성공적으로 등록되었습니다!", state="complete")
                         st.balloons()
+
+                # ✨ [추가] 수동으로 과거 미예약 일정 삭제하는 버튼 
+                st.divider()
+                st.markdown("#### 🗑️ 캘린더 청소하기")
+                if st.button("🧹 지난 미예약 캘린더 일정 일괄 삭제", key="m_clean_btn", use_container_width=True):
+                    with st.status("📡 과거 캘린더 일정을 정리하는 중...") as clean_status:
+                        try:
+                            my_calendar = get_dooray_calendar()
+                            if my_calendar:
+                                start_dt = datetime.datetime.now() - datetime.timedelta(days=30)
+                                end_dt = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+                                events = my_calendar.date_search(start=start_dt, end=end_dt)
+                                del_count = 0
+                                for event in events:
+                                    if "[예약가능]" in event.data:
+                                        event.delete()
+                                        del_count += 1
+                                clean_status.update(label=f"✅ 총 {del_count}건의 과거 [예약가능] 일정이 깔끔하게 삭제되었습니다!", state="complete")
+                            else:
+                                clean_status.update(label="⚠️ 캘린더 연결에 실패했습니다.", state="error")
+                        except Exception as e:
+                            clean_status.update(label=f"⚠️ 삭제 중 에러 발생: {e}", state="error")
