@@ -131,8 +131,15 @@
   .mat .sea{position:relative;height:16px;border-radius:9px;
     background:linear-gradient(180deg,#C6EAF4,#93D2E6);border:1px solid #7FC0D6;overflow:hidden;}
   .mat .sea::before{content:"˜ ˜ ˜ ˜ ˜ ˜ ˜ ˜";position:absolute;top:0;left:4px;color:#fff;opacity:.55;font-size:12px;letter-spacing:2px;}
-  .mat .sea .boat{position:absolute;top:-4px;left:0;font-size:18px;transition:left .12s linear;transform:scaleX(-1);}
-  .mat .sea .boat2{top:-1px;font-size:14px;opacity:.9;}
+  /* 🚢 이모지가 일부 PC에서 깨져 CSS 도형 배로 대체 (어느 환경에서나 표시됨) */
+  .mat .sea .boat{position:absolute;top:1px;left:0;width:18px;height:13px;transition:left .12s linear;z-index:2;}
+  .mat .sea .boat::before{content:"";position:absolute;bottom:0;left:0;width:18px;height:7px;
+    background:#D9534F;border-radius:1px 1px 8px 8px;box-shadow:inset 0 -1px 0 rgba(0,0,0,.18);}
+  .mat .sea .boat::after{content:"";position:absolute;bottom:6px;left:6px;width:6px;height:6px;
+    background:#fff;border-radius:2px 2px 0 0;}
+  .mat .sea .boat2{width:15px;height:11px;top:3px;z-index:1;}
+  .mat .sea .boat2::before{width:15px;height:6px;background:#4A90C2;}
+  .mat .sea .boat2::after{bottom:5px;left:5px;width:5px;height:5px;background:#FFE8A3;}
   .mat.low .stk{color:var(--tomato-dark);}
   /* 공장/배송/농장 */
   .factory{background:linear-gradient(180deg,#F2FBEE,var(--card));}
@@ -426,8 +433,8 @@ function buildBoard(){
         </div>
         <button class="buybtn" id="buy-${m}" onclick="buyMat('${m}')">구매</button>
         <div class="importbox" id="imp-${m}" style="display:none">
-          <div class="impmsg" id="impmsg-${m}">🚢 수입 중...</div>
-          <div class="sea"><span class="boat" id="boat1-${m}">🚢</span><span class="boat boat2" id="boat2-${m}" style="display:none">🚢</span></div>
+          <div class="impmsg" id="impmsg-${m}">수입 중...</div>
+          <div class="sea"><span class="boat" id="boat1-${m}"></span><span class="boat boat2" id="boat2-${m}" style="display:none"></span></div>
         </div>
       </div>`).join('');
   b.appendChild(shop);
@@ -630,12 +637,12 @@ function render(now,left){
       }else{
         b2.style.display='none';
       }
-      document.getElementById('impmsg-'+m).textContent=orders.length>1?'🚢🚢 2척 수입 중...':'🚢 수입 중...';
+      document.getElementById('impmsg-'+m).textContent=orders.length>1?'2척 수입 중...':'수입 중...';
       // 수입 중에도 버튼 유지 — 한 번 더 누르면 즉시 배 한 척 추가 출항
       btn.style.display='';
       btn.classList.remove('hint');
       if(orders.length>=MAX_BUY_ORDERS){
-        btn.disabled=true;btn.textContent='🚢 최대 수입 중';
+        btn.disabled=true;btn.textContent='최대 수입 중';
       }else{
         const afford=money>=price;
         btn.disabled=!afford;
