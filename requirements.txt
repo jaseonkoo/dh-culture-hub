@@ -3,5 +3,5 @@ pandas
 gspread
 oauth2client
 caldav==1.3.6
-zxing-cpp        ← 추가 (바코드 해석)
-pillow           ← 추가 (카메라 이미지 처리
+zxing-cpp
+pillow
