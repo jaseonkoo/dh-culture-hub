@@ -24,7 +24,7 @@ ADMIN_PW   = "dhfeed1947"          # 👈 관리자 비밀번호 (반드시 변�
 LOAN_DAYS  = 14                    # 기본 대출 기간(일)
 RENEW_DAYS = 7                     # 연장 시 추가 기간(일)
 MAX_RENEW  = 1                     # 최대 연장 횟수
-MAX_LOANS  = 3                     # 1인 동시 대출 권수
+MAX_LOANS  = 2                     # 1인 동시 대출 권수
 
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
          "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
@@ -314,6 +314,32 @@ def _status_badge(s):
     color = {"대출가능": "#059669", "대출중": "#dc2626", "예약중": "#d97706", "폐기": "#6b7280"}.get(s, "#6b7280")
     return f"<span style='background:{color}22;color:{color};font-weight:700;font-size:.8em;padding:2px 8px;border-radius:20px;'>{s}</span>"
 
+def _availability_by_title(title, books):
+    """같은 제목의 여러 권(복본) 중 한 권이라도 빌릴 수 있으면 '대출가능'으로 본다."""
+    copies = [b for b in books if str(b.get("title")).strip() == str(title).strip()]
+    if any(b.get("status") == "대출가능" for b in copies):
+        return "대출가능"
+    if any(b.get("status") == "예약중" for b in copies):
+        return "예약중"
+    return "대출중" if copies else "-"
+
+def _home_card(book, status, rank=None, count=None, title_fallback=""):
+    """표지 + 정보 + 대출가능 배지가 들어간 카드 한 장을 그린다."""
+    if book:
+        cover = f"<img src='{book.get('cover')}'>" if book.get("cover") else "<img>"
+        title = book.get("title") or title_fallback
+        meta = " · ".join([str(book.get(k)) for k in ["author", "publisher", "year"] if book.get(k)])
+        loc = book.get("location") or "-"
+    else:
+        cover, title, meta, loc = "<img>", title_fallback, "", "-"
+    rank_html = f"<span style='font-weight:800;color:#2563eb;margin-right:6px;'>{rank}위</span>" if rank else ""
+    count_html = f"<span class='lib-hint'> · 누적 대출 {count}회</span>" if count else ""
+    st.markdown(f"""<div class="book-card">{cover}
+        <div>{rank_html}<b>{title}</b>{count_html}<br>
+        <span class="lib-hint">{meta}</span><br>
+        <span class="lib-hint">위치 {loc}</span><br>
+        {_status_badge(status)}</div></div>""", unsafe_allow_html=True)
+
 # ==========================================================
 # 화면
 # ==========================================================
@@ -333,8 +359,37 @@ def run_library():
         st.info("ℹ️ 휴대폰 카메라 스캔 기능을 쓰려면 requirements.txt에 `zxing-cpp`, `pillow`를 추가해 주세요. (직접 입력·USB 스캐너는 지금도 사용 가능)")
     st.markdown("---")
 
-    tab_lend, tab_search, tab_my, tab_admin = st.tabs(
-        ["📕 대출·반납", "🔍 도서 검색", "🙋 내 대출·희망도서", "👑 관리자"])
+    tab_home, tab_lend, tab_search, tab_my, tab_admin = st.tabs(
+        ["🏠 홈", "📕 대출·반납", "🔍 도서 검색", "🙋 내 대출·희망도서", "👑 관리자"])
+
+    # ---------------- 홈 (최근 입고 · 인기 대출) ----------------
+    with tab_home:
+        home_books = [b for b in _records("books") if b.get("status") != "폐기"]
+        home_loans = _records("loans")
+
+        st.subheader("🆕 최근 입고된 책")
+        recent = list(reversed(home_books))[:5]   # 가장 최근에 등록한 순서(시트 맨 아래가 최신)
+        if not recent:
+            st.info("아직 등록된 도서가 없습니다. 관리자 탭에서 도서를 등록해 주세요.")
+        else:
+            for b in recent:
+                _home_card(b, b.get("status", "대출가능"))
+
+        st.markdown("---")
+        st.subheader("🔥 많이 대출된 책 TOP 5")
+        counts = {}
+        for l in home_loans:
+            t = str(l.get("title", "")).strip()
+            if t:
+                counts[t] = counts.get(t, 0) + 1
+        top = sorted(counts.items(), key=lambda x: -x[1])[:5]
+        if not top:
+            st.info("아직 대출 기록이 없습니다.")
+        else:
+            for rank, (title, c) in enumerate(top, start=1):
+                book = next((b for b in home_books if str(b.get("title")).strip() == title), None)
+                avail = _availability_by_title(title, home_books)
+                _home_card(book, avail, rank=rank, count=c, title_fallback=title)
 
     # ---------------- 대출 / 반납 ----------------
     with tab_lend:
