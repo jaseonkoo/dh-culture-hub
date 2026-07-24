@@ -11,6 +11,7 @@ import leader
 import oneday
 import typing_game
 import tycoon_game
+import library
 
 # 페이지 기본 설정
 st.set_page_config(page_title="조직문화 활성화 Hub", page_icon="🏢", layout="wide")
@@ -200,3 +201,8 @@ elif st.session_state.page == "tycoon":
     log_page_visit("tycoon")
     if st.button("⬅️ 메인으로"): go_to("home")
     tycoon_game.run_tycoon_game()
+
+elif st.session_state.page == "library":
+    log_page_visit("library")
+    if st.button("⬅️ 메인으로"): go_to("home")
+    library.run_library()
