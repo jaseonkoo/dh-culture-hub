@@ -93,7 +93,7 @@ def log_page_visit(page_name):
             ws.append_row(["날짜", "메인", "멘토링", "리더대화", "원데이클래스", "타자연습"])
             
         records = ws.get_all_records()
-        col_map = {"home": 2, "mentoring": 3, "leader": 4, "class": 5, "typing": 6, "tycoon": 7}
+        col_map = {"home": 2, "mentoring": 3, "leader": 4, "class": 5, "typing": 6, "tycoon": 7, "library": 8}
         col_idx = col_map.get(page_name)
         if not col_idx: return
 
@@ -167,6 +167,23 @@ if st.session_state.page == "home":
             if test_pw == "dhfeedhr":  # 👈 여기에 원하시는 테스트용 비밀번호를 적어주세요.
                 go_to("tycoon")
             elif test_pw == "":
+                st.warning("비밀번호를 입력해 주세요.")
+            else:
+                st.error("비밀번호가 일치하지 않습니다.")
+
+
+    with row3_col2:
+        st.markdown("### 📚 사내 도서관")
+        st.caption("비밀번호를 입력하고 입장하세요.")
+
+        l_pw, l_btn = st.columns([2, 1])
+        # 도서관 입장 비밀번호 입력창
+        lib_pw = l_pw.text_input("비밀번호", type="password", key="library_pw", label_visibility="collapsed", placeholder="비밀번호 입력")
+
+        if l_btn.button("입장하기", key="btn_library", use_container_width=True):
+            if lib_pw == "dhfeedhr":  # 👈 타이쿤과 동일한 비밀번호 (원하면 여기만 바꾸면 됩니다)
+                go_to("library")
+            elif lib_pw == "":
                 st.warning("비밀번호를 입력해 주세요.")
             else:
                 st.error("비밀번호가 일치하지 않습니다.")
