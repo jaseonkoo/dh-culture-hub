@@ -24,7 +24,7 @@ ADMIN_PW   = "dhfeed1947"          # 👈 관리자 비밀번호 (반드시 변�
 LOAN_DAYS  = 14                    # 기본 대출 기간(일)
 RENEW_DAYS = 7                     # 연장 시 추가 기간(일)
 MAX_RENEW  = 1                     # 최대 연장 횟수
-MAX_LOANS  = 2                     # 1인 동시 대출 권수
+MAX_LOANS  = 5                     # 1인 동시 대출 권수
 
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
          "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
@@ -257,10 +257,50 @@ def _set_wish_status(wish_id, status):
 # ==========================================================
 # 도서 등록 / ISBN 자동조회
 # ==========================================================
-def _lookup_isbn(isbn):
-    isbn = "".join(ch for ch in str(isbn) if ch.isdigit() or ch in "Xx")
-    if not isbn:
+def _get_nl_key():
+    """Streamlit Secrets 에서 국립중앙도서관 인증키를 읽어온다. 없으면 None."""
+    try:
+        return st.secrets["nl"]["cert_key"]
+    except Exception:
         return None
+
+def _pick(d, *names):
+    """응답 필드명이 조금 달라도 견디도록, 여러 후보 중 값이 있는 것을 고른다."""
+    for n in names:
+        v = d.get(n)
+        if v not in (None, ""):
+            return str(v).strip()
+    return ""
+
+def _lookup_nl(isbn, key):
+    """국립중앙도서관 서지정보(SEOJI) API. 공공데이터 + 상당수 표지(TITLE_URL) 제공."""
+    try:
+        url = ("https://www.nl.go.kr/seoji/SearchApi.do?cert_key=" + key +
+               "&result_style=json&page_no=1&page_size=10&isbn=" + isbn)
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            raw = resp.read().decode("utf-8", "ignore")
+        data = json.loads(raw, strict=False)
+        docs = data.get("docs") or data.get("DOCS") or []
+        if not docs:
+            return None
+        d = docs[0]
+        title = _pick(d, "TITLE").split(" / ")[0].strip()          # "제목 / 저자" → 제목만
+        predate = _pick(d, "PUBLISH_PREDATE", "PUBLISH_DATE", "REAL_PUBLISH_DATE")
+        return {
+            "isbn": isbn,
+            "title": title,
+            "author": _pick(d, "AUTHOR"),
+            "publisher": _pick(d, "PUBLISHER"),
+            "year": predate[:4] if predate else "",
+            "category": _pick(d, "SUBJECT"),                        # KDC 분류
+            "cover": _pick(d, "TITLE_URL", "BOOK_TB_URL"),          # 표지 이미지
+        }
+    except Exception:
+        return None
+
+def _lookup_google(isbn):
+    """구글 북스 - 해외 원서 보조용."""
     try:
         url = "https://www.googleapis.com/books/v1/volumes?q=isbn:" + isbn
         with urllib.request.urlopen(url, timeout=8) as resp:
@@ -280,6 +320,23 @@ def _lookup_isbn(isbn):
         }
     except Exception:
         return None
+
+def _lookup_isbn(isbn):
+    """도서 정보 조회. 반환값: (정보 dict 또는 None, 안내 메시지 또는 None)"""
+    isbn = "".join(ch for ch in str(isbn) if ch.isdigit() or ch in "Xx")
+    if not isbn:
+        return None, "ISBN을 입력하세요."
+    key = _get_nl_key()
+    if key:
+        info = _lookup_nl(isbn, key)       # 1순위: 국립중앙도서관(국내서)
+        if info:
+            return info, None
+    info = _lookup_google(isbn)             # 2순위: 구글 북스(해외서)
+    if info:
+        return info, None
+    if not key:
+        return None, "국립중앙도서관 인증키가 설정되어 있지 않습니다. 앱 설정의 Secrets에 [nl] cert_key 를 추가해 주세요."
+    return None, "도서 정보를 찾지 못했습니다. ISBN을 확인하거나 직접 입력해 주세요."
 
 def _add_book(b):
     asset = str(b.get("asset_id", "")).strip()
@@ -556,13 +613,13 @@ def run_library():
                 ic1, ic2 = st.columns([3, 1])
                 isbn_in = ic1.text_input("ISBN (조회로 자동 채우기)", key="reg_isbn")
                 if ic2.button("ISBN 조회", key="reg_lookup", use_container_width=True):
-                    info = _lookup_isbn(isbn_in)
+                    info, err = _lookup_isbn(isbn_in)
                     if info:
                         for k in ["title", "author", "publisher", "year", "category", "cover"]:
                             st.session_state[f"reg_{k}"] = info[k]
                         st.success("정보를 불러왔습니다. 아래에서 확인 후 등록하세요.")
                     else:
-                        st.warning("도서 정보를 찾지 못했습니다. 직접 입력해 주세요.")
+                        st.warning(err or "도서 정보를 찾지 못했습니다. 직접 입력해 주세요.")
                 with st.form("book_form", clear_on_submit=True):
                     asset = st.text_input("자산번호(책에 붙일 바코드) *")
                     title = st.text_input("제목 *", value=st.session_state.get("reg_title", ""))
