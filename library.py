@@ -21,6 +21,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
+LIB_VER    = "v3 (2026-07-29 · 바로대출 버튼)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 LOAN_DAYS  = 14
@@ -114,7 +115,7 @@ def _col(name, field):
     hdr = _header(name)
     if field in hdr:
         return hdr.index(field) + 1
-    raise LibSchema(f"'{name}' 탭에 '{field}' 열이 없습니다. 관리자 탭의 '시트 형식 변환'을 먼저 실행해 주세요.")
+    raise LibSchema(f"'{name}' 탭에 '{field}' 열이 없습니다. 👑 관리자 메뉴의 '시트 형식 변환'을 먼저 실행해 주세요.")
 
 def _needs_migration():
     """books/loans 탭이 아직 예전(자산번호) 형식인지 확인."""
@@ -700,7 +701,8 @@ def _run_library():
     """, unsafe_allow_html=True)
 
     st.header("📚 사내 도서관")
-    st.caption("책에 인쇄된 ISBN 바코드로 셀프 대출·반납하세요. 개인정보는 사번·이름만 사용합니다.")
+    st.caption(f"책에 인쇄된 ISBN 바코드로 셀프 대출·반납하세요. 개인정보는 사번·이름만 사용합니다. "
+               f"　(버전 {LIB_VER})")
     if not _SCAN_OK:
         st.info("ℹ️ 휴대폰 카메라 스캔을 쓰려면 requirements.txt에 zxing-cpp, pillow가 필요합니다. (직접 입력·USB 스캐너는 지금도 가능)")
 
@@ -708,7 +710,7 @@ def _run_library():
     if _old_sheet:
         st.error("⚠️ 구글 시트가 아직 **예전 형식(자산번호 방식)** 입니다. "
                  "그래서 모든 책이 '대출중'으로 보이고, 대출·반납이 정상 동작하지 않습니다.\n\n"
-                 "👑 **관리자 탭 → 🔧 시트 형식 변환** 을 한 번 실행해 주세요. "
+                 "👑 **관리자 메뉴 → 🔧 시트 형식 변환** 을 한 번 실행해 주세요. "
                  "기존 도서·대출 기록은 그대로 옮겨지고, 예전 탭은 백업으로 남습니다.")
 
     st.markdown("---")
@@ -730,7 +732,7 @@ def _run_library():
         st.subheader("🆕 최근 입고된 책")
         recent = list(reversed(home_books))[:5]
         if not recent:
-            st.info("아직 등록된 도서가 없습니다. 관리자 탭에서 도서를 등록해 주세요.")
+            st.info("아직 등록된 도서가 없습니다. 👑 관리자 메뉴에서 도서를 등록해 주세요.")
         else:
             for i, b in enumerate(recent):
                 _book_row(b, "recent", i)
@@ -753,7 +755,7 @@ def _run_library():
     # ---------------- 대출 / 반납 ----------------
     if menu == MENU[1]:
       if _old_sheet:
-        st.warning("시트 형식 변환이 끝난 뒤에 이용할 수 있습니다. (관리자 탭 → 🔧 시트 형식 변환)")
+        st.warning("시트 형식 변환이 끝난 뒤에 이용할 수 있습니다. (👑 관리자 메뉴 → 🔧 시트 형식 변환)")
       else:
         MODES = ["📕 대출하기", "📗 반납하기"]
         _want = st.session_state.pop("lib_mode_want", None)
