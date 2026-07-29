@@ -21,7 +21,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v3 (2026-07-29 · 바로대출 버튼)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
+LIB_VER    = "v4 (2026-07-29 · 메뉴 버튼 고정)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 LOAN_DAYS  = 14
@@ -715,14 +715,22 @@ def _run_library():
 
     st.markdown("---")
 
-    # 탭(st.tabs) 대신 메뉴 버튼을 씁니다. 그래야 [바로 대출하기]를 눌렀을 때
-    # 프로그램이 '대출·반납' 화면으로 옮겨 줄 수 있습니다.
-    _cur = st.session_state.get("lib_menu", MENU[0])
-    if _cur not in MENU:
-        _cur = MENU[0]
-    menu = st.radio("메뉴", MENU, index=MENU.index(_cur),
-                    horizontal=True, label_visibility="collapsed")
+    # 탭(st.tabs) 대신 메뉴 '버튼'을 씁니다.
+    #  - 탭은 프로그램이 대신 눌러 줄 수 없어서 [바로 대출하기] 이동이 안 됩니다.
+    #  - 라디오는 화면이 새로 그려질 때 첫 칸으로 되돌아가는 문제가 있었습니다.
+    #  - 버튼은 '누를 때만' 바뀌므로, 글자를 입력하다 딴 곳을 클릭해도 화면이 그대로 있습니다.
+    menu = st.session_state.get("lib_menu", MENU[0])
+    if menu not in MENU:
+        menu = MENU[0]
+    _mcols = st.columns(len(MENU))
+    for _i, _m in enumerate(MENU):
+        if _mcols[_i].button(_m, key=f"lib_nav_{_i}", use_container_width=True,
+                             type=("primary" if _m == menu else "secondary")):
+            if _m != menu:
+                st.session_state["lib_menu"] = _m
+                st.rerun()
     st.session_state["lib_menu"] = menu
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
     # ---------------- 홈 ----------------
     if menu == MENU[0]:
