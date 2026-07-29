@@ -139,8 +139,25 @@ def _norm_isbn(x):
     return "".join(ch for ch in str(x or "").strip().upper() if ch.isalnum())
 
 def _to_int(v, default=0):
+    """시트 칸에 '1', 1, 1.0, ' 1 ', '1권' 같이 뭐가 들어 있어도 숫자로 읽는다."""
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return default
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        return int(v)
+    s = str(v).strip().replace(",", "")
+    if not s:
+        return default
     try:
-        return int(str(v).strip())
+        return int(s)
+    except Exception:
+        pass
+    num = "".join(ch for ch in s if ch.isdigit() or ch in ".-")
+    try:
+        return int(float(num))
     except Exception:
         return default
 
@@ -193,6 +210,39 @@ def _adjust_available(isbn, delta):
             _retry(ws.update_cell, i + 2, ca, newv)
             return newv
     return None
+
+def _audit_stock():
+    """books 탭의 '대출가능 수량'이 실제 대출 현황과 맞는지 검사한다. (고치지는 않음)"""
+    _refresh()
+    out_cnt = {}
+    for l in _records("loans"):
+        if l.get("status") == "대출중":
+            k = _norm_isbn(l.get("isbn"))
+            out_cnt[k] = out_cnt.get(k, 0) + 1
+    bad = []
+    for i, b in enumerate(_records("books")):
+        if b.get("status") == "폐기":
+            continue
+        k = _norm_isbn(b.get("isbn"))
+        tot = _to_int(b.get("total_qty"))
+        cur = _to_int(b.get("available_qty"))
+        out = out_cnt.get(k, 0)
+        should = max(0, tot - out)
+        if should != cur:
+            bad.append({"row": i + 2, "제목": b.get("title", ""), "ISBN": b.get("isbn", ""),
+                        "총권수": tot, "대출중": out,
+                        "시트값(대출가능)": cur, "올바른값": should})
+    return bad
+
+def _fix_stock(bad):
+    """검사에서 나온 어긋난 값을 올바른 값으로 되돌린다."""
+    if not bad:
+        return 0
+    ws = _ws("books"); ca = _col("books", "available_qty")
+    for r in bad:
+        _retry(ws.update_cell, r["row"], ca, r["올바른값"])
+    _refresh()
+    return len(bad)
 
 def _is_overdue(loan):
     due = str(loan.get("due_date", ""))
@@ -725,6 +775,24 @@ def _run_library():
             m3.metric("연체", len(overdue))
             m4.metric("희망도서", len(wishes))
             st.caption(f"도서 종수: {len(live_books)}종 · 회원 {len(_records('members'))}명")
+
+            with st.expander("🧮 재고 점검  (‘대출가능’ 표시가 실제와 다를 때)"):
+                st.caption("각 책의 '대출가능 수량'이 **총 권수 − 지금 대출 중인 권수**와 맞는지 확인합니다. "
+                           "대출·반납 도중 오류가 났거나 시트를 손으로 고친 경우 어긋날 수 있어요.")
+                if st.button("검사하기", key="lib_audit"):
+                    st.session_state["lib_audit_result"] = _audit_stock()
+                res = st.session_state.get("lib_audit_result")
+                if res is not None:
+                    if not res:
+                        st.success("모든 도서의 수량이 정상입니다.")
+                    else:
+                        st.warning(f"{len(res)}종의 수량이 맞지 않습니다.")
+                        st.dataframe(pd.DataFrame(res).drop(columns=["row"]),
+                                     use_container_width=True, hide_index=True)
+                        if st.button("✅ 올바른 값으로 자동 수정", key="lib_audit_fix"):
+                            n = _fix_stock(res)
+                            st.session_state["lib_audit_result"] = None
+                            st.success(f"{n}종을 수정했습니다."); st.rerun()
 
             with st.expander("➕ 도서 등록  (같은 ISBN을 다시 등록하면 수량이 늘어납니다)", expanded=True):
                 ic1, ic2 = st.columns([3, 1])
