@@ -60,6 +60,10 @@ class LibBusy(Exception):
     """구글 시트 접속이 일시적으로 막혔을 때(사용량 초과 등)."""
     pass
 
+class LibSchema(Exception):
+    """시트의 열(헤더)이 지금 프로그램 형식과 다를 때."""
+    pass
+
 def _retry(fn, *a, **kw):
     """구글 시트 호출을 몇 번 다시 시도. 사용량 초과(429)·일시 오류(5xx) 대응."""
     last = None
@@ -106,12 +110,19 @@ def _header(name):
     return cache.get("__hdr__" + name, list(HEADERS[name]))
 
 def _col(name, field):
-    """열 번호(1부터). 시트에 해당 열이 없으면 기본 헤더 순서를 사용."""
+    """열 번호(1부터). 없는 열에 잘못 쓰는 사고를 막기 위해, 없으면 오류를 낸다."""
     hdr = _header(name)
-    try:
+    if field in hdr:
         return hdr.index(field) + 1
-    except ValueError:
-        return HEADERS[name].index(field) + 1
+    raise LibSchema(f"'{name}' 탭에 '{field}' 열이 없습니다. 관리자 탭의 '시트 형식 변환'을 먼저 실행해 주세요.")
+
+def _needs_migration():
+    """books/loans 탭이 아직 예전(자산번호) 형식인지 확인."""
+    try:
+        bh = _header("books"); lh = _header("loans")
+    except Exception:
+        return False
+    return ("available_qty" not in bh) or ("total_qty" not in bh) or ("isbn" not in lh)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def _records(name):
@@ -210,6 +221,85 @@ def _adjust_available(isbn, delta):
             _retry(ws.update_cell, i + 2, ca, newv)
             return newv
     return None
+
+# ==========================================================
+# 예전 형식(자산번호 1행=1권) → 새 형식(ISBN + 수량) 변환
+# ==========================================================
+def _build_migration():
+    """변환 결과를 계산만 한다. (시트는 건드리지 않음)"""
+    old_books = _retry(_ws("books").get_all_records)
+    old_loans = _retry(_ws("loans").get_all_records)
+
+    # 자산번호 → ISBN 매핑 (ISBN이 비어 있으면 자산번호를 그대로 열쇠로 씀)
+    a2i, no_isbn = {}, []
+    for r in old_books:
+        a = str(r.get("asset_id", "")).strip()
+        i = _norm_isbn(r.get("isbn"))
+        if a:
+            a2i[a] = i or a
+            if not i:
+                no_isbn.append(f"{r.get('title','')} ({a})")
+
+    # 대출 기록: asset_id 열을 isbn 열로 바꿔 옮긴다
+    new_loans, out_cnt = [], {}
+    for r in old_loans:
+        a = str(r.get("asset_id", "") or r.get("isbn", "")).strip()
+        key = a2i.get(a) or _norm_isbn(a) or a
+        status = str(r.get("status", "")).strip()
+        new_loans.append([r.get("loan_id", ""), key, r.get("title", ""), r.get("saban", ""),
+                          r.get("name", ""), r.get("loan_date", ""), r.get("due_date", ""),
+                          r.get("return_date", ""), _to_int(r.get("renew_count")), status])
+        if status == "대출중":
+            out_cnt[key] = out_cnt.get(key, 0) + 1
+
+    # 도서: 같은 ISBN끼리 묶어 수량으로 만든다
+    agg, order = {}, []
+    for r in old_books:
+        a = str(r.get("asset_id", "")).strip()
+        key = a2i.get(a) or _norm_isbn(r.get("isbn")) or a
+        if not key:
+            continue
+        if key not in agg:
+            agg[key] = {"isbn": key, "total": 0, "dead": 0,
+                        **{f: r.get(f, "") for f in
+                           ["title", "author", "publisher", "year", "category", "location", "cover"]}}
+            order.append(key)
+        g = agg[key]
+        for f in ["title", "author", "publisher", "year", "category", "location", "cover"]:
+            if not str(g[f]).strip() and str(r.get(f, "")).strip():
+                g[f] = r.get(f, "")
+        if str(r.get("status", "")).strip() == "폐기":
+            g["dead"] += 1
+        else:
+            g["total"] += 1
+
+    new_books = []
+    for key in order:
+        g = agg[key]
+        tot = g["total"]
+        avail = max(0, tot - out_cnt.get(key, 0))
+        new_books.append([g["isbn"], g["title"], g["author"], g["publisher"], g["year"],
+                          g["category"], g["location"], tot, avail,
+                          "폐기" if tot == 0 else "정상", g["cover"]])
+    return {"books": new_books, "loans": new_loans,
+            "old_book_rows": len(old_books), "no_isbn": no_isbn}
+
+def _apply_migration(plan):
+    """예전 탭은 이름만 바꿔 백업으로 남기고, 새 형식 탭을 만들어 옮겨 담는다."""
+    stamp = datetime.datetime.now().strftime("%m%d_%H%M")
+    for name in ["books", "loans", "reservations"]:
+        try:
+            _retry(_ws(name).update_title, f"{name}_backup_{stamp}")
+        except Exception:
+            pass
+    _reset_conn()                      # 캐시를 비워 새 탭이 자동 생성되게 함
+    if plan["books"]:
+        _retry(_ws("books").append_rows, plan["books"])
+    if plan["loans"]:
+        _retry(_ws("loans").append_rows, plan["loans"])
+    _ws("reservations")                # 빈 탭으로 새로 생성
+    _reset_conn()
+    return stamp
 
 def _audit_stock():
     """books 탭의 '대출가능 수량'이 실제 대출 현황과 맞는지 검사한다. (고치지는 않음)"""
@@ -548,6 +638,8 @@ def run_library():
         _run_library()
     except gspread.exceptions.SpreadsheetNotFound:
         st.error(f"구글 시트 '{LIB_DB}' 를 열 수 없습니다. 시트 이름과 서비스 계정 공유(편집자) 설정을 확인해 주세요.")
+    except LibSchema as e:
+        st.error(str(e))
     except (LibBusy, gspread.exceptions.APIError) as e:
         code = getattr(getattr(e, "response", None), "status_code", None)
         if code in (429, None):
@@ -573,6 +665,13 @@ def _run_library():
     st.caption("책에 인쇄된 ISBN 바코드로 셀프 대출·반납하세요. 개인정보는 사번·이름만 사용합니다.")
     if not _SCAN_OK:
         st.info("ℹ️ 휴대폰 카메라 스캔을 쓰려면 requirements.txt에 zxing-cpp, pillow가 필요합니다. (직접 입력·USB 스캐너는 지금도 가능)")
+
+    _old_sheet = _needs_migration()
+    if _old_sheet:
+        st.error("⚠️ 구글 시트가 아직 **예전 형식(자산번호 방식)** 입니다. "
+                 "그래서 모든 책이 '대출중'으로 보이고, 대출·반납이 정상 동작하지 않습니다.\n\n"
+                 "👑 **관리자 탭 → 🔧 시트 형식 변환** 을 한 번 실행해 주세요. "
+                 "기존 도서·대출 기록은 그대로 옮겨지고, 예전 탭은 백업으로 남습니다.")
     st.markdown("---")
 
     tab_home, tab_lend, tab_search, tab_my, tab_admin = st.tabs(
@@ -608,6 +707,9 @@ def _run_library():
 
     # ---------------- 대출 / 반납 ----------------
     with tab_lend:
+      if _old_sheet:
+        st.warning("시트 형식 변환이 끝난 뒤에 이용할 수 있습니다. (관리자 탭 → 🔧 시트 형식 변환)")
+      else:
         mode = st.radio("무엇을 하시겠어요?", ["📕 대출하기", "📗 반납하기"], horizontal=True, key="lib_mode")
         use_cam = st.checkbox("📷 휴대폰 카메라로 스캔", key="lib_usecam",
                               help="체크하면 카메라가 켜집니다. USB 스캐너·직접 입력은 체크 없이 사용하세요.")
@@ -775,6 +877,39 @@ def _run_library():
             m3.metric("연체", len(overdue))
             m4.metric("희망도서", len(wishes))
             st.caption(f"도서 종수: {len(live_books)}종 · 회원 {len(_records('members'))}명")
+
+            with st.expander("🔧 시트 형식 변환  (예전 자산번호 방식 → ISBN·수량 방식)",
+                             expanded=_old_sheet):
+                if not _old_sheet:
+                    st.success("시트는 이미 새 형식입니다. 변환할 것이 없습니다.")
+                else:
+                    st.write("**무엇을 하나요?** 예전에는 책 한 권마다 한 줄(자산번호)이었는데, "
+                             "지금 방식은 같은 책을 한 줄로 묶고 '총 권수 / 대출가능 권수'로 관리합니다. "
+                             "아래 버튼이 그 변환을 대신 해 줍니다.")
+                    st.write("**안전한가요?** 예전 `books`·`loans`·`reservations` 탭은 지우지 않고 "
+                             "`books_backup_날짜시간` 처럼 **이름만 바꿔 그대로 남깁니다.** "
+                             "문제가 생기면 언제든 되돌아볼 수 있어요.")
+                    if st.button("① 변환 결과 미리보기", key="lib_mig_plan"):
+                        st.session_state["lib_mig"] = _build_migration()
+                    plan = st.session_state.get("lib_mig")
+                    if plan:
+                        st.info(f"예전 도서 {plan['old_book_rows']}줄 → **{len(plan['books'])}종**으로 묶입니다. "
+                                f"대출 기록 {len(plan['loans'])}건이 함께 옮겨집니다.")
+                        st.dataframe(pd.DataFrame(plan["books"], columns=HEADERS["books"])
+                                     [["isbn", "title", "total_qty", "available_qty", "status"]],
+                                     use_container_width=True, hide_index=True)
+                        if plan["no_isbn"]:
+                            st.warning("ISBN이 비어 있는 도서는 자산번호를 임시 열쇠로 사용합니다. "
+                                       "변환 후 관리자 탭에서 ISBN을 채워 주세요: "
+                                       + ", ".join(plan["no_isbn"][:10])
+                                       + (" 외" if len(plan["no_isbn"]) > 10 else ""))
+                        st.caption("⚠️ 예약 대기 기록은 초기화됩니다(백업에는 남습니다). 대출 기록은 유지됩니다.")
+                        if st.checkbox("위 내용을 확인했습니다.", key="lib_mig_ok"):
+                            if st.button("② 변환 실행", key="lib_mig_go", type="primary"):
+                                stamp = _apply_migration(plan)
+                                st.session_state["lib_mig"] = None
+                                st.success(f"변환이 끝났습니다. 예전 자료는 `books_backup_{stamp}` 등에 있습니다.")
+                                st.rerun()
 
             with st.expander("🧮 재고 점검  (‘대출가능’ 표시가 실제와 다를 때)"):
                 st.caption("각 책의 '대출가능 수량'이 **총 권수 − 지금 대출 중인 권수**와 맞는지 확인합니다. "
