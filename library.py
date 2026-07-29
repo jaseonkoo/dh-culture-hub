@@ -175,6 +175,16 @@ def _to_int(v, default=0):
 # ==========================================================
 # 회원 (사번 + 이름)
 # ==========================================================
+def _member_name(saban):
+    """이미 한 번이라도 이용한 사번이면 저장된 이름을 돌려준다. 처음이면 빈 문자열."""
+    saban = str(saban).strip()
+    if not saban:
+        return ""
+    for m in _records("members"):
+        if str(m.get("saban")).strip() == saban:
+            return str(m.get("name", "")).strip()
+    return ""
+
 def _ensure_member(saban, name):
     saban = str(saban).strip(); name = str(name).strip()
     if not saban:
@@ -612,43 +622,33 @@ def _qty_text(book):
         return ""
     return f"대출가능 {_to_int(book.get('available_qty'))} / 총 {_to_int(book.get('total_qty'))}권"
 
-def _me():
-    """화면 위쪽 '내 정보'에 입력해 둔 사번·이름."""
-    return (str(st.session_state.get("lib_me_saban", "")).strip(),
-            str(st.session_state.get("lib_me_name", "")).strip())
+MENU = ["🏠 홈", "📕 대출·반납", "🔍 도서 검색", "🙋 내 대출·희망도서", "👑 관리자"]
 
-def _flash():
-    """바로 대출 결과 메시지를 화면 위쪽에 한 번 보여준다."""
-    m = st.session_state.pop("lib_flash", None)
-    if not m:
-        return
-    kind, text = m
-    {"ok": st.success, "warn": st.warning, "err": st.error}.get(kind, st.info)(text)
-    if kind == "ok":
-        st.balloons()
+def _goto_lend(book):
+    """[바로 대출하기] → 대출·반납 메뉴로 이동하면서 ISBN을 미리 채워 둔다."""
+    st.session_state["lib_menu"] = MENU[1]
+    st.session_state["lib_mode_want"] = "📕 대출하기"
+    st.session_state["lib_prefill_isbn"] = _norm_isbn(book.get("isbn", ""))
+    st.session_state["lib_prefill_title"] = str(book.get("title", ""))
+    st.rerun()
 
-def _quick_loan(book, keyprefix):
-    """'대출가능'인 책 아래에 [바로 대출하기] 버튼을 그린다."""
-    if not book or _book_avail_label(book) != "대출가능":
-        return
-    isbn = book.get("isbn", "")
-    if st.button("📕 바로 대출하기", key=f"ql_{keyprefix}_{_norm_isbn(isbn)}",
-                 use_container_width=True):
-        saban, name = _me()
-        if not saban:
-            st.session_state["lib_flash"] = ("warn", "먼저 화면 위쪽 **내 정보**에 사번을 입력해 주세요.")
-        else:
-            try:
-                ok, res = _checkout(isbn, saban, name)
-            except Exception as e:
-                st.session_state["lib_flash"] = ("err", f"대출 처리 중 오류가 났습니다. 잠시 후 다시 시도해 주세요. ({e})")
-            else:
-                if ok:
-                    st.session_state["lib_flash"] = (
-                        "ok", f"✅ **{res['title']}** 대출 완료 · 반납예정일 **{res['due']}** ({res['name']}님)")
-                else:
-                    st.session_state["lib_flash"] = ("err", f"⚠️ {res}")
-        st.rerun()
+def _row2(ratio=(5, 1.6)):
+    """왼쪽=책 카드, 오른쪽=버튼. 버튼을 카드 아래쪽(=상태바 옆)에 맞춘다."""
+    try:
+        return st.columns(list(ratio), vertical_alignment="bottom")
+    except TypeError:      # 스트림릿 버전이 낮으면 옵션 없이
+        return st.columns(list(ratio))
+
+def _book_row(book, keyprefix, key_id, rank=None, count=None, title_fallback=""):
+    """책 한 줄 = 카드 + (대출가능일 때) 상태바 옆 [📕 바로 대출하기] 버튼."""
+    can = bool(book) and _book_avail_label(book) == "대출가능"
+    left, right = _row2()
+    with left:
+        _home_card(book, rank=rank, count=count, title_fallback=title_fallback)
+    with right:
+        if can:
+            if st.button("📕 바로 대출하기", key=f"go_{keyprefix}_{key_id}", use_container_width=True):
+                _goto_lend(book)
 
 def _home_card(book, rank=None, count=None, title_fallback=""):
     if book:
@@ -711,20 +711,19 @@ def _run_library():
                  "👑 **관리자 탭 → 🔧 시트 형식 변환** 을 한 번 실행해 주세요. "
                  "기존 도서·대출 기록은 그대로 옮겨지고, 예전 탭은 백업으로 남습니다.")
 
-    if not _old_sheet:
-        mc1, mc2, mc3 = st.columns([1, 1, 2])
-        mc1.text_input("내 사번", key="lib_me_saban", placeholder="사번")
-        mc2.text_input("이름 (처음 1회)", key="lib_me_name", placeholder="이름")
-        mc3.caption("👆 사번을 적어 두면, 아래 목록에서 **대출가능**인 책의 "
-                    "[📕 바로 대출하기] 버튼으로 스캔 없이 바로 빌릴 수 있어요.")
-    _flash()
     st.markdown("---")
 
-    tab_home, tab_lend, tab_search, tab_my, tab_admin = st.tabs(
-        ["🏠 홈", "📕 대출·반납", "🔍 도서 검색", "🙋 내 대출·희망도서", "👑 관리자"])
+    # 탭(st.tabs) 대신 메뉴 버튼을 씁니다. 그래야 [바로 대출하기]를 눌렀을 때
+    # 프로그램이 '대출·반납' 화면으로 옮겨 줄 수 있습니다.
+    _cur = st.session_state.get("lib_menu", MENU[0])
+    if _cur not in MENU:
+        _cur = MENU[0]
+    menu = st.radio("메뉴", MENU, index=MENU.index(_cur),
+                    horizontal=True, label_visibility="collapsed")
+    st.session_state["lib_menu"] = menu
 
     # ---------------- 홈 ----------------
-    with tab_home:
+    if menu == MENU[0]:
         home_books = [b for b in _records("books") if b.get("status") != "폐기"]
         home_loans = _records("loans")
 
@@ -733,9 +732,8 @@ def _run_library():
         if not recent:
             st.info("아직 등록된 도서가 없습니다. 관리자 탭에서 도서를 등록해 주세요.")
         else:
-            for b in recent:
-                _home_card(b)
-                _quick_loan(b, "recent")
+            for i, b in enumerate(recent):
+                _book_row(b, "recent", i)
 
         st.markdown("---")
         st.subheader("🔥 많이 대출된 책 TOP 5")
@@ -750,23 +748,52 @@ def _run_library():
         else:
             for rank, (title, c) in enumerate(top, start=1):
                 book = next((b for b in home_books if str(b.get("title")).strip() == title), None)
-                _home_card(book, rank=rank, count=c, title_fallback=title)
-                _quick_loan(book, "top")
+                _book_row(book, "top", rank, rank=rank, count=c, title_fallback=title)
 
     # ---------------- 대출 / 반납 ----------------
-    with tab_lend:
+    if menu == MENU[1]:
       if _old_sheet:
         st.warning("시트 형식 변환이 끝난 뒤에 이용할 수 있습니다. (관리자 탭 → 🔧 시트 형식 변환)")
       else:
-        mode = st.radio("무엇을 하시겠어요?", ["📕 대출하기", "📗 반납하기"], horizontal=True, key="lib_mode")
+        MODES = ["📕 대출하기", "📗 반납하기"]
+        _want = st.session_state.pop("lib_mode_want", None)
+        if _want in MODES:
+            st.session_state["lib_mode_cur"] = _want
+        _mc = st.session_state.get("lib_mode_cur", MODES[0])
+        if _mc not in MODES:
+            _mc = MODES[0]
+        mode = st.radio("무엇을 하시겠어요?", MODES, index=MODES.index(_mc), horizontal=True)
+        st.session_state["lib_mode_cur"] = mode
         use_cam = st.checkbox("📷 휴대폰 카메라로 스캔", key="lib_usecam",
                               help="체크하면 카메라가 켜집니다. USB 스캐너·직접 입력은 체크 없이 사용하세요.")
 
         # ===== 대출 =====
         if mode == "📕 대출하기":
+            # 홈·검색에서 [📕 바로 대출하기]로 넘어온 경우 ISBN이 미리 채워져 있다.
+            prefill = str(st.session_state.get("lib_prefill_isbn", "") or "")
+            ptitle = str(st.session_state.get("lib_prefill_title", "") or "")
+            if prefill:
+                pc1, pc2 = st.columns([5, 1])
+                pc1.info(f"📕 **{ptitle}** 을(를) 빌립니다. (ISBN {prefill})\n\n"
+                         "아래에 **사번**을 넣고 [대출하기]를 누르세요. 바코드는 찍지 않아도 됩니다.")
+                if pc2.button("취소", key="co_clear", use_container_width=True):
+                    st.session_state.pop("lib_prefill_isbn", None)
+                    st.session_state.pop("lib_prefill_title", None)
+                    st.rerun()
+
             c1, c2 = st.columns(2)
             saban = c1.text_input("사번", key="co_saban", placeholder="사번 입력")
-            name = c2.text_input("이름 (처음 이용 시 1회)", key="co_name", placeholder="이름")
+            known = _member_name(saban)
+            if known:
+                # 이미 한 번이라도 이용한 사번 → 이름을 자동으로 채워 보여준다.
+                c2.text_input("이름 (자동 입력됨)", value=known, disabled=True, key="co_name_auto")
+                name = known
+                c1.caption(f"👤 **{known}** 님, 반갑습니다.")
+            else:
+                name = c2.text_input("이름 (처음 이용 시 1회)", key="co_name", placeholder="이름")
+                if str(saban).strip():
+                    c1.caption("🆕 처음 보는 사번이에요. 오른쪽에 이름을 한 번만 적어 주세요. "
+                               "다음부터는 사번만 넣으면 이름이 자동으로 나옵니다.")
 
             if use_cam:
                 img = st.camera_input("책의 ISBN 바코드를 비추고 촬영하세요", key="co_cam")
@@ -782,10 +809,13 @@ def _run_library():
                     st.warning("바코드를 인식하지 못했어요. 조금 더 가까이서 다시 촬영해 주세요.")
             else:
                 with st.form("co_form", clear_on_submit=True):
-                    manual = st.text_input("책 ISBN 바코드 (USB 스캐너로 스캔 또는 숫자 직접 입력)")
+                    manual = st.text_input("책 ISBN 바코드 (USB 스캐너로 스캔 또는 숫자 직접 입력)",
+                                           value=prefill)
                     if st.form_submit_button("대출하기", use_container_width=True):
                         ok, res = _checkout(manual, saban, name)
                         if ok:
+                            st.session_state.pop("lib_prefill_isbn", None)
+                            st.session_state.pop("lib_prefill_title", None)
                             st.success(f"✅ **{res['title']}** 대출 완료 · 반납예정일 **{res['due']}**"); st.balloons()
                         else:
                             st.error(f"⚠️ {res}")
@@ -827,7 +857,7 @@ def _run_library():
             st.markdown("<p class='lib-hint'>반납은 보통 책 바코드만 스캔하면 됩니다. 같은 책 여러 권이 동시에 대출 중일 때만 사번을 넣어 주세요.</p>", unsafe_allow_html=True)
 
     # ---------------- 도서 검색 ----------------
-    with tab_search:
+    if menu == MENU[2]:
         q = st.text_input("제목 · 저자 · ISBN 검색", key="lib_q", placeholder="검색어를 입력하세요")
         books = [b for b in _records("books") if b.get("status") != "폐기"]
         ql = q.strip().lower()
@@ -836,15 +866,8 @@ def _run_library():
                 ql in str(b.get(k, "")).lower() for k in ["title", "author", "isbn", "category", "publisher"])]
         books = sorted(books, key=lambda b: str(b.get("title", "")))
         st.caption(f"총 {len(books)}종")
-        for b in books[:100]:
-            cover = f"<img src='{b.get('cover')}'>" if b.get("cover") else "<img>"
-            meta = " · ".join([str(b.get(k)) for k in ["author", "publisher", "year"] if b.get(k)])
-            st.markdown(f"""<div class="book-card">{cover}
-                <div><b>{b.get('title')}</b><br>
-                <span class="lib-hint">{meta}</span><br>
-                <span class="lib-hint">{_qty_text(b)} · 위치 {b.get('location') or '-'}</span><br>
-                {_status_badge(_book_avail_label(b))}</div></div>""", unsafe_allow_html=True)
-            _quick_loan(b, "search")
+        for si, b in enumerate(books[:100]):
+            _book_row(b, "search", si)
             if _to_int(b.get("available_qty")) <= 0 and b.get("status") != "폐기":
                 with st.expander(f"🔖 '{b.get('title')}' 예약하기"):
                     with st.form(f"res_{_norm_isbn(b.get('isbn'))}", clear_on_submit=True):
@@ -856,7 +879,7 @@ def _run_library():
                             (st.success if ok else st.error)(msg)
 
     # ---------------- 내 대출 / 희망도서 ----------------
-    with tab_my:
+    if menu == MENU[3]:
         st.subheader("📖 내 대출 현황")
         msaban = st.text_input("사번으로 조회", key="my_saban", placeholder="사번 입력")
         if msaban.strip():
@@ -894,7 +917,7 @@ def _run_library():
                 (st.success if ok else st.error)(msg)
 
     # ---------------- 관리자 ----------------
-    with tab_admin:
+    if menu == MENU[4]:
         if "lib_admin" not in st.session_state:
             st.session_state.lib_admin = False
         if not st.session_state.lib_admin:
