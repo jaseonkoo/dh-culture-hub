@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # ==========================================================
-# 📚 사내 도서관 (library.py)
-#  - 기존 조직문화 허브(main.py)에 붙는 독립 모듈
-#  - 바코드 셀프 대출/반납 (휴대폰 카메라 + USB 스캐너)
-#  - 개인정보 최소화: 사번 + 이름만 사용
-#  - DB: 구글 시트 파일 "대한사료_도서관_DB"
+# 📚 사내 도서관 (library.py)  —  ISBN + 수량관리 버전
+#  - 책에 인쇄된 ISBN 바코드로 셀프 대출/반납 (별도 라벨 불필요)
+#  - 같은 책 여러 권은 '수량'으로 관리 (총 n권 중 대출가능 m권)
+#  - 휴대폰 카메라 + USB 스캐너 겸용
+#  - 개인정보 최소화: 사번 + 이름
+#  - DB: 구글 시트 "대한사료_도서관_DB"
+#  - ISBN 조회: 국립중앙도서관(공공데이터) + 구글북스(해외 보조)
 # ==========================================================
-from utils import *          # streamlit(st), datetime, uuid, pd, gspread, time, ServiceAccountCredentials 등
+from utils import *          # st, datetime, uuid, pd, gspread, time, ServiceAccountCredentials 등
 import urllib.request, json
 
 # 휴대폰 카메라 바코드 해석용 (없어도 나머지 기능은 동작)
@@ -18,28 +20,30 @@ try:
 except Exception:
     _SCAN_OK = False
 
-# ---------------- 설정값 (필요 시 수정) ----------------
-LIB_DB     = "대한사료_도서관_DB"   # 구글 드라이브에 이 이름으로 빈 시트를 만들어 두세요
-ADMIN_PW   = "dhfeed1947"          # 👈 관리자 비밀번호 (반드시 변경)
-LOAN_DAYS  = 14                    # 기본 대출 기간(일)
-RENEW_DAYS = 7                     # 연장 시 추가 기간(일)
-MAX_RENEW  = 1                     # 최대 연장 횟수
-MAX_LOANS  = 5                     # 1인 동시 대출 권수
+# ---------------- 설정값 ----------------
+LIB_DB     = "대한사료_도서관_DB"
+ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
+LOAN_DAYS  = 14
+RENEW_DAYS = 7
+MAX_RENEW  = 1
+MAX_LOANS  = 5
 
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
          "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
 
-# 각 시트(탭)의 헤더 - 없으면 자동 생성됨
+# 각 시트(탭) 헤더 - 없으면 자동 생성
 HEADERS = {
-    "books":        ["asset_id", "isbn", "title", "author", "publisher", "year", "category", "location", "status", "cover"],
+    "books":        ["isbn", "title", "author", "publisher", "year", "category", "location",
+                     "total_qty", "available_qty", "status", "cover"],
     "members":      ["saban", "name", "joined"],
-    "loans":        ["loan_id", "asset_id", "title", "saban", "name", "loan_date", "due_date", "return_date", "renew_count", "status"],
+    "loans":        ["loan_id", "isbn", "title", "saban", "name",
+                     "loan_date", "due_date", "return_date", "renew_count", "status"],
     "reservations": ["res_id", "isbn", "title", "saban", "name", "res_date", "status"],
     "wishlist":     ["wish_id", "title", "author", "isbn", "saban", "name", "reason", "date", "status"],
 }
 
 # ==========================================================
-# 구글 시트 접근 (기존 플랫폼과 동일한 방식)
+# 구글 시트 접근
 # ==========================================================
 @st.cache_resource
 def _lib_doc():
@@ -47,31 +51,98 @@ def _lib_doc():
     client = gspread.authorize(creds)
     return client.open(LIB_DB)
 
+@st.cache_resource
+def _ws_cache():
+    """탭(워크시트) 핸들·헤더 캐시. 구글 API 호출 횟수를 최소화하기 위한 것."""
+    return {}
+
+class LibBusy(Exception):
+    """구글 시트 접속이 일시적으로 막혔을 때(사용량 초과 등)."""
+    pass
+
+def _retry(fn, *a, **kw):
+    """구글 시트 호출을 몇 번 다시 시도. 사용량 초과(429)·일시 오류(5xx) 대응."""
+    last = None
+    for i in range(4):
+        try:
+            return fn(*a, **kw)
+        except gspread.exceptions.APIError as e:
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            if code in (429, 500, 502, 503):
+                last = e
+                time.sleep(1.2 * (i + 1))
+                continue
+            raise
+    raise LibBusy(str(last))
+
 def _ws(name):
-    """워크시트 반환. 없으면 헤더와 함께 자동 생성."""
+    """탭 핸들을 돌려준다. 한 번 찾은 탭은 캐시해 두고 재사용한다."""
+    cache = _ws_cache()
+    if name in cache:
+        return cache[name]
     doc = _lib_doc()
-    titles = [w.title for w in doc.worksheets()]
-    if name not in titles:
-        ws = doc.add_worksheet(name, 1000, 26)
-        ws.append_row(HEADERS[name])
-        return ws
-    ws = doc.worksheet(name)
-    if not ws.row_values(1):
-        ws.append_row(HEADERS[name])
+    try:
+        ws = _retry(doc.worksheet, name)
+        try:
+            first = _retry(ws.row_values, 1)
+        except Exception:
+            first = None
+        if not first:
+            _retry(ws.append_row, HEADERS[name])
+            first = list(HEADERS[name])
+    except gspread.exceptions.WorksheetNotFound:
+        ws = _retry(doc.add_worksheet, title=name, rows=1000, cols=26)
+        _retry(ws.append_row, HEADERS[name])
+        first = list(HEADERS[name])
+    cache[name] = ws
+    cache["__hdr__" + name] = first
     return ws
 
-@st.cache_data(ttl=30, show_spinner=False)
+def _header(name):
+    """해당 탭의 첫 줄(열 이름)을 돌려준다. (캐시 사용)"""
+    cache = _ws_cache()
+    if "__hdr__" + name not in cache:
+        _ws(name)
+    return cache.get("__hdr__" + name, list(HEADERS[name]))
+
+def _col(name, field):
+    """열 번호(1부터). 시트에 해당 열이 없으면 기본 헤더 순서를 사용."""
+    hdr = _header(name)
+    try:
+        return hdr.index(field) + 1
+    except ValueError:
+        return HEADERS[name].index(field) + 1
+
+@st.cache_data(ttl=60, show_spinner=False)
 def _records(name):
     try:
-        return _ws(name).get_all_records()
+        return _retry(_ws(name).get_all_records)
     except Exception:
         return []
 
 def _refresh():
     _records.clear()
 
+def _reset_conn():
+    """탭 캐시 초기화 (시트 구조를 바꿨을 때 사용)."""
+    try:
+        _ws_cache().clear()
+    except Exception:
+        pass
+    _records.clear()
+
 def _today():
     return datetime.date.today()
+
+def _norm_isbn(x):
+    """하이픈·공백 제거해 매칭용으로 정규화 (숫자/문자 유지, 대문자)."""
+    return "".join(ch for ch in str(x or "").strip().upper() if ch.isalnum())
+
+def _to_int(v, default=0):
+    try:
+        return int(str(v).strip())
+    except Exception:
+        return default
 
 # ==========================================================
 # 회원 (사번 + 이름)
@@ -85,24 +156,43 @@ def _ensure_member(saban, name):
             return {"saban": saban, "name": str(m.get("name", "")).strip()}, None
     if not name:
         return None, "처음 이용하시는 사번입니다. 이름도 함께 입력해 주세요."
-    _ws("members").append_row([saban, name, str(_today())])
+    _retry(_ws("members").append_row, [saban, name, str(_today())])
     _refresh()
     return {"saban": saban, "name": name}, None
 
 # ==========================================================
-# 도서 상태 / 대출 / 반납
+# 도서 (ISBN 키 + 수량)
 # ==========================================================
-def _set_book_status(asset_id, status):
-    ws = _ws("books")
-    header = ws.row_values(1)
-    if "status" not in header:
-        return False
-    col = header.index("status") + 1
-    for i, r in enumerate(ws.get_all_records()):
-        if str(r.get("asset_id")).strip() == str(asset_id).strip():
-            ws.update_cell(i + 2, col, status)
-            return True
-    return False
+def _find_book(isbn):
+    isbn = _norm_isbn(isbn)
+    for b in _records("books"):
+        if _norm_isbn(b.get("isbn")) == isbn:
+            return b
+    return None
+
+def _book_avail_label(book):
+    if not book:
+        return "-"
+    if book.get("status") == "폐기":
+        return "폐기"
+    if _to_int(book.get("available_qty")) > 0:
+        return "대출가능"
+    if _first_reservation(book.get("isbn", "")):
+        return "예약중"
+    return "대출중"
+
+def _adjust_available(isbn, delta):
+    """available_qty 를 delta 만큼 조정(0~total 범위로 제한)."""
+    isbn = _norm_isbn(isbn)
+    ws = _ws("books"); ca = _col("books", "available_qty")
+    for i, r in enumerate(_records("books")):
+        if _norm_isbn(r.get("isbn")) == isbn:
+            cur = _to_int(r.get("available_qty"))
+            tot = _to_int(r.get("total_qty"), cur)
+            newv = max(0, min(cur + delta, tot))
+            _retry(ws.update_cell, i + 2, ca, newv)
+            return newv
+    return None
 
 def _is_overdue(loan):
     due = str(loan.get("due_date", ""))
@@ -113,125 +203,128 @@ def _is_overdue(loan):
     except Exception:
         return False
 
-def _first_reservation(title):
-    title = str(title).strip()
+def _first_reservation(isbn):
+    isbn = _norm_isbn(isbn)
     res = [r for r in _records("reservations")
-           if r.get("status") == "대기" and str(r.get("title")).strip() == title]
+           if r.get("status") == "대기" and _norm_isbn(r.get("isbn")) == isbn]
     res.sort(key=lambda r: str(r.get("res_date", "")))
     return res[0] if res else None
 
-def _checkout(code, saban, name):
-    code = str(code).strip()
-    if not code:
-        return False, "책 바코드를 스캔하세요."
+# ---------------- 대출 ----------------
+def _checkout(isbn, saban, name):
+    isbn = _norm_isbn(isbn)
+    if not isbn:
+        return False, "책의 ISBN 바코드를 스캔하세요."
     member, err = _ensure_member(saban, name)
     if err:
         return False, err
-    book = next((b for b in _records("books") if str(b.get("asset_id")).strip() == code), None)
+    book = _find_book(isbn)
     if not book:
-        return False, f"등록되지 않은 도서입니다: {code}"
+        return False, f"등록되지 않은 도서입니다. (ISBN {isbn}) 관리자에게 등록을 요청하세요."
     if book.get("status") == "폐기":
         return False, "폐기된 도서입니다."
-    if book.get("status") == "대출중":
-        return False, "이미 대출 중인 도서입니다."
-    if book.get("status") == "예약중":
-        w = _first_reservation(book.get("title", ""))
-        if w and str(w.get("saban")).strip() != member["saban"]:
-            return False, "다른 직원이 예약한 도서입니다. (예약자 우선)"
-        if w:  # 예약자 본인 → 예약 소진
-            _mark_reservation_done(w.get("res_id"))
-    active = [l for l in _records("loans")
-              if str(l.get("saban")).strip() == member["saban"] and l.get("status") == "대출중"]
-    if len(active) >= MAX_LOANS:
+
+    my_active = [l for l in _records("loans")
+                 if l.get("status") == "대출중" and str(l.get("saban")).strip() == member["saban"]]
+    if any(_norm_isbn(l.get("isbn")) == isbn for l in my_active):
+        return False, "이미 이 책을 대출 중입니다."
+    if len(my_active) >= MAX_LOANS:
         return False, f"동시 대출 한도({MAX_LOANS}권)를 초과했습니다."
+    if _to_int(book.get("available_qty")) <= 0:
+        return False, "현재 모든 권이 대출 중입니다. '검색' 탭에서 예약할 수 있어요."
 
     loan_id = str(uuid.uuid4())[:8]
     loan_date = _today()
     due = loan_date + datetime.timedelta(days=LOAN_DAYS)
-    _ws("loans").append_row([loan_id, code, book.get("title", ""), member["saban"], member["name"],
-                             str(loan_date), str(due), "", 0, "대출중"])
-    _set_book_status(code, "대출중")
+    _retry(_ws("loans").append_row,
+           [loan_id, isbn, book.get("title", ""), member["saban"], member["name"],
+            str(loan_date), str(due), "", 0, "대출중"])
+    _adjust_available(isbn, -1)
     _refresh()
     return True, {"title": book.get("title", ""), "due": str(due), "name": member["name"]}
 
-def _checkin(code):
-    code = str(code).strip()
-    if not code:
-        return False, "책 바코드를 스캔하세요."
+# ---------------- 반납 ----------------
+def _checkin(isbn, saban=""):
+    isbn = _norm_isbn(isbn)
+    if not isbn:
+        return False, "책의 ISBN 바코드를 스캔하세요."
+    book = _find_book(isbn)
+    if not book:
+        return False, f"등록되지 않은 도서입니다. (ISBN {isbn})"
     ws = _ws("loans")
-    header = ws.row_values(1)
-    records = ws.get_all_records()
-    target, target_row = None, None
-    for i, r in enumerate(records):
-        if str(r.get("asset_id")).strip() == code and r.get("status") == "대출중":
-            target, target_row = r, i + 2
-    if not target:
-        _set_book_status(code, "대출가능")
-        return False, "대출 기록이 없는 도서입니다. (이미 반납되었을 수 있어요)"
-    ws.update_cell(target_row, header.index("return_date") + 1, str(_today()))
-    ws.update_cell(target_row, header.index("status") + 1, "반납완료")
-    waiting = _first_reservation(target.get("title", ""))
-    _set_book_status(code, "예약중" if waiting else "대출가능")
-    overdue = _is_overdue(target)
-    _refresh()
-    return True, {"title": target.get("title", ""), "overdue": overdue,
-                  "waiting": waiting["name"] if waiting else ""}
+    open_loans = [(i + 2, r) for i, r in enumerate(_records("loans"))
+                  if _norm_isbn(r.get("isbn")) == isbn and r.get("status") == "대출중"]
+    if not open_loans:
+        return False, "대출 중이 아닌 책입니다. (이미 반납되었을 수 있어요)"
 
+    if len(open_loans) == 1:
+        target = open_loans[0]
+    else:
+        saban = str(saban).strip()
+        if not saban:
+            return False, {"need_saban": True,
+                           "msg": "이 책은 여러 권이 대출 중이에요. 반납자의 사번을 입력한 뒤 다시 시도해 주세요."}
+        cand = [t for t in open_loans if str(t[1].get("saban")).strip() == saban]
+        if not cand:
+            return False, {"need_saban": True, "msg": "해당 사번으로 이 책을 대출한 기록이 없어요. 사번을 확인해 주세요."}
+        cand.sort(key=lambda t: str(t[1].get("due_date", "")))
+        target = cand[0]
+
+    row, loan = target
+    _retry(ws.update_cell, row, _col("loans", "return_date"), str(_today()))
+    _retry(ws.update_cell, row, _col("loans", "status"), "반납완료")
+    _adjust_available(isbn, +1)
+    waiting = _first_reservation(isbn)
+    overdue = _is_overdue(loan)
+    _refresh()
+    return True, {"title": book.get("title", ""), "overdue": overdue,
+                  "waiting": waiting["name"] if waiting else "", "borrower": str(loan.get("name", ""))}
+
+# ---------------- 연장 ----------------
 def _renew(loan_id, saban):
     ws = _ws("loans")
-    header = ws.row_values(1)
-    for i, r in enumerate(ws.get_all_records()):
+    for i, r in enumerate(_records("loans")):
         if str(r.get("loan_id")).strip() == str(loan_id).strip():
             if str(r.get("saban")).strip() != str(saban).strip():
                 return False, "본인 대출만 연장할 수 있습니다."
             if r.get("status") != "대출중":
                 return False, "이미 반납된 대출입니다."
-            cnt = int(r.get("renew_count") or 0)
+            cnt = _to_int(r.get("renew_count"))
             if cnt >= MAX_RENEW:
                 return False, f"더 이상 연장할 수 없습니다. (최대 {MAX_RENEW}회)"
-            if _first_reservation(r.get("title", "")):
+            if _first_reservation(r.get("isbn", "")):
                 return False, "예약 대기자가 있어 연장할 수 없습니다."
             try:
                 base = datetime.datetime.strptime(str(r.get("due_date")), "%Y-%m-%d").date()
             except Exception:
                 base = _today()
             newdue = base + datetime.timedelta(days=RENEW_DAYS)
-            ws.update_cell(i + 2, header.index("due_date") + 1, str(newdue))
-            ws.update_cell(i + 2, header.index("renew_count") + 1, cnt + 1)
+            _retry(ws.update_cell, i + 2, _col("loans", "due_date"), str(newdue))
+            _retry(ws.update_cell, i + 2, _col("loans", "renew_count"), cnt + 1)
             _refresh()
             return True, {"due": str(newdue)}
     return False, "대출 기록을 찾을 수 없습니다."
 
-# ==========================================================
-# 예약 / 희망도서
-# ==========================================================
-def _mark_reservation_done(res_id):
-    ws = _ws("reservations")
-    header = ws.row_values(1)
-    for i, r in enumerate(ws.get_all_records()):
-        if str(r.get("res_id")).strip() == str(res_id).strip():
-            ws.update_cell(i + 2, header.index("status") + 1, "완료")
-            return True
-    return False
-
-def _reserve(asset_id, saban, name):
+# ---------------- 예약 / 희망도서 ----------------
+def _reserve(isbn, saban, name):
     member, err = _ensure_member(saban, name)
     if err:
         return False, err
-    book = next((b for b in _records("books") if str(b.get("asset_id")).strip() == str(asset_id).strip()), None)
+    book = _find_book(isbn)
     if not book:
         return False, "도서를 찾을 수 없습니다."
-    if book.get("status") == "대출가능":
-        return False, "바로 대출 가능한 도서입니다. 예약이 필요 없어요."
+    if _to_int(book.get("available_qty")) > 0:
+        return False, "지금 대출 가능한 책입니다. 예약이 필요 없어요."
+    nisbn = _norm_isbn(isbn)
     dup = any(r.get("status") == "대기" and str(r.get("saban")).strip() == member["saban"]
-              and str(r.get("title")).strip() == str(book.get("title")).strip()
-              for r in _records("reservations"))
+              and _norm_isbn(r.get("isbn")) == nisbn for r in _records("reservations"))
     if dup:
         return False, "이미 예약 대기 중입니다."
-    _ws("reservations").append_row([str(uuid.uuid4())[:8], book.get("isbn", ""), book.get("title", ""),
-                                    member["saban"], member["name"], str(_today()), "대기"])
+    _retry(_ws("reservations").append_row,
+           [str(uuid.uuid4())[:8], nisbn, book.get("title", ""),
+            member["saban"], member["name"], str(_today()), "대기"])
     _refresh()
-    return True, "예약 완료. 반납되면 순번대로 안내됩니다."
+    return True, "예약 완료. 반납되면 안내됩니다."
 
 def _add_wish(saban, name, title, author, reason):
     member, err = _ensure_member(saban, name)
@@ -239,17 +332,17 @@ def _add_wish(saban, name, title, author, reason):
         return False, err
     if not str(title).strip():
         return False, "희망 도서 제목을 입력하세요."
-    _ws("wishlist").append_row([str(uuid.uuid4())[:8], title, author, "", member["saban"],
-                               member["name"], reason, str(_today()), "접수"])
+    _retry(_ws("wishlist").append_row,
+           [str(uuid.uuid4())[:8], title, author, "", member["saban"],
+            member["name"], reason, str(_today()), "접수"])
     _refresh()
     return True, "희망도서 신청이 접수되었습니다."
 
 def _set_wish_status(wish_id, status):
     ws = _ws("wishlist")
-    header = ws.row_values(1)
-    for i, r in enumerate(ws.get_all_records()):
+    for i, r in enumerate(_records("wishlist")):
         if str(r.get("wish_id")).strip() == str(wish_id).strip():
-            ws.update_cell(i + 2, header.index("status") + 1, status)
+            _retry(ws.update_cell, i + 2, _col("wishlist", "status"), status)
             _refresh()
             return True
     return False
@@ -258,14 +351,12 @@ def _set_wish_status(wish_id, status):
 # 도서 등록 / ISBN 자동조회
 # ==========================================================
 def _get_nl_key():
-    """Streamlit Secrets 에서 국립중앙도서관 인증키를 읽어온다. 없으면 None."""
     try:
         return st.secrets["nl"]["cert_key"]
     except Exception:
         return None
 
 def _pick(d, *names):
-    """응답 필드명이 조금 달라도 견디도록, 여러 후보 중 값이 있는 것을 고른다."""
     for n in names:
         v = d.get(n)
         if v not in (None, ""):
@@ -273,7 +364,7 @@ def _pick(d, *names):
     return ""
 
 def _lookup_nl(isbn, key):
-    """국립중앙도서관 서지정보(SEOJI) API. 공공데이터 + 상당수 표지(TITLE_URL) 제공."""
+    """국립중앙도서관 서지정보(SEOJI) API."""
     try:
         url = ("https://www.nl.go.kr/seoji/SearchApi.do?cert_key=" + key +
                "&result_style=json&page_no=1&page_size=10&isbn=" + isbn)
@@ -285,22 +376,17 @@ def _lookup_nl(isbn, key):
         if not docs:
             return None
         d = docs[0]
-        title = _pick(d, "TITLE").split(" / ")[0].strip()          # "제목 / 저자" → 제목만
+        title = _pick(d, "TITLE").split(" / ")[0].strip()
         predate = _pick(d, "PUBLISH_PREDATE", "PUBLISH_DATE", "REAL_PUBLISH_DATE")
         return {
-            "isbn": isbn,
-            "title": title,
-            "author": _pick(d, "AUTHOR"),
-            "publisher": _pick(d, "PUBLISHER"),
-            "year": predate[:4] if predate else "",
-            "category": _pick(d, "SUBJECT"),                        # KDC 분류
-            "cover": _pick(d, "TITLE_URL", "BOOK_TB_URL"),          # 표지 이미지
+            "isbn": isbn, "title": title, "author": _pick(d, "AUTHOR"),
+            "publisher": _pick(d, "PUBLISHER"), "year": predate[:4] if predate else "",
+            "category": _pick(d, "SUBJECT"), "cover": _pick(d, "TITLE_URL", "BOOK_TB_URL"),
         }
     except Exception:
         return None
 
 def _lookup_google(isbn):
-    """구글 북스 - 해외 원서 보조용."""
     try:
         url = "https://www.googleapis.com/books/v1/volumes?q=isbn:" + isbn
         with urllib.request.urlopen(url, timeout=8) as resp:
@@ -312,26 +398,23 @@ def _lookup_google(isbn):
         il = v.get("imageLinks", {})
         if il:
             cover = (il.get("thumbnail") or il.get("smallThumbnail") or "").replace("http://", "https://")
-        return {
-            "isbn": isbn, "title": v.get("title", ""),
-            "author": ", ".join(v.get("authors", [])), "publisher": v.get("publisher", ""),
-            "year": str(v.get("publishedDate", ""))[:4], "category": ", ".join(v.get("categories", [])),
-            "cover": cover,
-        }
+        return {"isbn": isbn, "title": v.get("title", ""), "author": ", ".join(v.get("authors", [])),
+                "publisher": v.get("publisher", ""), "year": str(v.get("publishedDate", ""))[:4],
+                "category": ", ".join(v.get("categories", [])), "cover": cover}
     except Exception:
         return None
 
 def _lookup_isbn(isbn):
-    """도서 정보 조회. 반환값: (정보 dict 또는 None, 안내 메시지 또는 None)"""
+    """반환값: (정보 dict 또는 None, 안내 메시지 또는 None)"""
     isbn = "".join(ch for ch in str(isbn) if ch.isdigit() or ch in "Xx")
     if not isbn:
         return None, "ISBN을 입력하세요."
     key = _get_nl_key()
     if key:
-        info = _lookup_nl(isbn, key)       # 1순위: 국립중앙도서관(국내서)
+        info = _lookup_nl(isbn, key)
         if info:
             return info, None
-    info = _lookup_google(isbn)             # 2순위: 구글 북스(해외서)
+    info = _lookup_google(isbn)
     if info:
         return info, None
     if not key:
@@ -339,18 +422,31 @@ def _lookup_isbn(isbn):
     return None, "도서 정보를 찾지 못했습니다. ISBN을 확인하거나 직접 입력해 주세요."
 
 def _add_book(b):
-    asset = str(b.get("asset_id", "")).strip()
-    if not asset:
-        return False, "자산번호(바코드)를 입력하세요."
+    isbn = _norm_isbn(b.get("isbn"))
+    if not isbn:
+        return False, "ISBN을 입력(스캔)하세요. ISBN이 없는 자료는 임의의 숫자코드를 부여해 주세요."
     if not str(b.get("title", "")).strip():
         return False, "제목을 입력하세요."
-    if any(str(x.get("asset_id")).strip() == asset for x in _records("books")):
-        return False, f"이미 존재하는 자산번호입니다: {asset}"
-    _ws("books").append_row([asset, b.get("isbn", ""), b.get("title", ""), b.get("author", ""),
-                            b.get("publisher", ""), b.get("year", ""), b.get("category", ""),
-                            b.get("location", ""), "대출가능", b.get("cover", "")])
+    qty = max(1, _to_int(b.get("qty"), 1))
+    existing = _find_book(isbn)
+    if existing:
+        ws = _ws("books")
+        for i, r in enumerate(_records("books")):
+            if _norm_isbn(r.get("isbn")) == isbn:
+                t = _to_int(r.get("total_qty")) + qty
+                a = _to_int(r.get("available_qty")) + qty
+                _retry(ws.update_cell, i + 2, _col("books", "total_qty"), t)
+                _retry(ws.update_cell, i + 2, _col("books", "available_qty"), a)
+                if r.get("status") == "폐기":
+                    _retry(ws.update_cell, i + 2, _col("books", "status"), "정상")
+                _refresh()
+                return True, f"기존 도서에 {qty}권 추가 (총 {t}권): {existing.get('title')}"
+    _retry(_ws("books").append_row,
+           [isbn, b.get("title", ""), b.get("author", ""), b.get("publisher", ""),
+            b.get("year", ""), b.get("category", ""), b.get("location", ""),
+            qty, qty, "정상", b.get("cover", "")])
     _refresh()
-    return True, f"등록 완료: {b.get('title')}"
+    return True, f"등록 완료: {b.get('title')} ({qty}권)"
 
 # ==========================================================
 # 바코드 이미지 해석 (휴대폰 카메라)
@@ -371,36 +467,49 @@ def _status_badge(s):
     color = {"대출가능": "#059669", "대출중": "#dc2626", "예약중": "#d97706", "폐기": "#6b7280"}.get(s, "#6b7280")
     return f"<span style='background:{color}22;color:{color};font-weight:700;font-size:.8em;padding:2px 8px;border-radius:20px;'>{s}</span>"
 
-def _availability_by_title(title, books):
-    """같은 제목의 여러 권(복본) 중 한 권이라도 빌릴 수 있으면 '대출가능'으로 본다."""
-    copies = [b for b in books if str(b.get("title")).strip() == str(title).strip()]
-    if any(b.get("status") == "대출가능" for b in copies):
-        return "대출가능"
-    if any(b.get("status") == "예약중" for b in copies):
-        return "예약중"
-    return "대출중" if copies else "-"
+def _qty_text(book):
+    if not book:
+        return ""
+    return f"대출가능 {_to_int(book.get('available_qty'))} / 총 {_to_int(book.get('total_qty'))}권"
 
-def _home_card(book, status, rank=None, count=None, title_fallback=""):
-    """표지 + 정보 + 대출가능 배지가 들어간 카드 한 장을 그린다."""
+def _home_card(book, rank=None, count=None, title_fallback=""):
     if book:
         cover = f"<img src='{book.get('cover')}'>" if book.get("cover") else "<img>"
         title = book.get("title") or title_fallback
         meta = " · ".join([str(book.get(k)) for k in ["author", "publisher", "year"] if book.get(k)])
         loc = book.get("location") or "-"
+        qty = _qty_text(book)
     else:
-        cover, title, meta, loc = "<img>", title_fallback, "", "-"
+        cover, title, meta, loc, qty = "<img>", title_fallback, "", "-", ""
     rank_html = f"<span style='font-weight:800;color:#2563eb;margin-right:6px;'>{rank}위</span>" if rank else ""
     count_html = f"<span class='lib-hint'> · 누적 대출 {count}회</span>" if count else ""
     st.markdown(f"""<div class="book-card">{cover}
         <div>{rank_html}<b>{title}</b>{count_html}<br>
         <span class="lib-hint">{meta}</span><br>
-        <span class="lib-hint">위치 {loc}</span><br>
-        {_status_badge(status)}</div></div>""", unsafe_allow_html=True)
+        <span class="lib-hint">{qty} · 위치 {loc}</span><br>
+        {_status_badge(_book_avail_label(book))}</div></div>""", unsafe_allow_html=True)
 
 # ==========================================================
 # 화면
 # ==========================================================
 def run_library():
+    """바깥 껍데기: 구글 시트 오류가 나도 앱이 죽지 않고 안내 메시지를 보여준다."""
+    try:
+        _run_library()
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.error(f"구글 시트 '{LIB_DB}' 를 열 수 없습니다. 시트 이름과 서비스 계정 공유(편집자) 설정을 확인해 주세요.")
+    except (LibBusy, gspread.exceptions.APIError) as e:
+        code = getattr(getattr(e, "response", None), "status_code", None)
+        if code in (429, None):
+            st.warning("⏳ 구글 시트 요청이 잠시 몰렸습니다. 5~10초 뒤 아래 버튼을 눌러 다시 시도해 주세요.")
+        elif code == 403:
+            st.error("구글 시트 접근 권한이 없습니다. 시트를 서비스 계정 이메일에 **편집자**로 공유했는지 확인해 주세요.")
+        else:
+            st.error(f"구글 시트 오류가 발생했습니다. (코드 {code}) 잠시 후 다시 시도해 주세요.")
+        if st.button("🔄 다시 시도", key="lib_retry"):
+            _reset_conn(); st.rerun()
+
+def _run_library():
     st.markdown("""
         <style>
         .book-card { border:1px solid #e5e7eb; border-radius:12px; padding:14px; margin-bottom:10px;
@@ -411,26 +520,26 @@ def run_library():
     """, unsafe_allow_html=True)
 
     st.header("📚 사내 도서관")
-    st.caption("책에 붙은 바코드로 셀프 대출·반납하세요. 개인정보는 사번·이름만 사용합니다.")
+    st.caption("책에 인쇄된 ISBN 바코드로 셀프 대출·반납하세요. 개인정보는 사번·이름만 사용합니다.")
     if not _SCAN_OK:
-        st.info("ℹ️ 휴대폰 카메라 스캔 기능을 쓰려면 requirements.txt에 `zxing-cpp`, `pillow`를 추가해 주세요. (직접 입력·USB 스캐너는 지금도 사용 가능)")
+        st.info("ℹ️ 휴대폰 카메라 스캔을 쓰려면 requirements.txt에 zxing-cpp, pillow가 필요합니다. (직접 입력·USB 스캐너는 지금도 가능)")
     st.markdown("---")
 
     tab_home, tab_lend, tab_search, tab_my, tab_admin = st.tabs(
         ["🏠 홈", "📕 대출·반납", "🔍 도서 검색", "🙋 내 대출·희망도서", "👑 관리자"])
 
-    # ---------------- 홈 (최근 입고 · 인기 대출) ----------------
+    # ---------------- 홈 ----------------
     with tab_home:
         home_books = [b for b in _records("books") if b.get("status") != "폐기"]
         home_loans = _records("loans")
 
         st.subheader("🆕 최근 입고된 책")
-        recent = list(reversed(home_books))[:5]   # 가장 최근에 등록한 순서(시트 맨 아래가 최신)
+        recent = list(reversed(home_books))[:5]
         if not recent:
             st.info("아직 등록된 도서가 없습니다. 관리자 탭에서 도서를 등록해 주세요.")
         else:
             for b in recent:
-                _home_card(b, b.get("status", "대출가능"))
+                _home_card(b)
 
         st.markdown("---")
         st.subheader("🔥 많이 대출된 책 TOP 5")
@@ -445,14 +554,13 @@ def run_library():
         else:
             for rank, (title, c) in enumerate(top, start=1):
                 book = next((b for b in home_books if str(b.get("title")).strip() == title), None)
-                avail = _availability_by_title(title, home_books)
-                _home_card(book, avail, rank=rank, count=c, title_fallback=title)
+                _home_card(book, rank=rank, count=c, title_fallback=title)
 
     # ---------------- 대출 / 반납 ----------------
     with tab_lend:
         mode = st.radio("무엇을 하시겠어요?", ["📕 대출하기", "📗 반납하기"], horizontal=True, key="lib_mode")
         use_cam = st.checkbox("📷 휴대폰 카메라로 스캔", key="lib_usecam",
-                              help="체크하면 카메라가 켜집니다. USB 스캐너나 직접 입력은 체크 없이 사용하세요.")
+                              help="체크하면 카메라가 켜집니다. USB 스캐너·직접 입력은 체크 없이 사용하세요.")
 
         # ===== 대출 =====
         if mode == "📕 대출하기":
@@ -461,60 +569,62 @@ def run_library():
             name = c2.text_input("이름 (처음 이용 시 1회)", key="co_name", placeholder="이름")
 
             if use_cam:
-                img = st.camera_input("책 바코드를 비추고 촬영하세요", key="co_cam")
+                img = st.camera_input("책의 ISBN 바코드를 비추고 촬영하세요", key="co_cam")
                 code = _decode(img)
                 if code and st.session_state.get("co_last") != code:
                     ok, res = _checkout(code, saban, name)
                     st.session_state["co_last"] = code
                     if ok:
-                        st.success(f"✅ **{res['title']}** 대출 완료 · 반납예정일 **{res['due']}**")
-                        st.balloons()
+                        st.success(f"✅ **{res['title']}** 대출 완료 · 반납예정일 **{res['due']}**"); st.balloons()
                     else:
                         st.error(f"⚠️ {res}")
                 elif img is not None and not code:
                     st.warning("바코드를 인식하지 못했어요. 조금 더 가까이서 다시 촬영해 주세요.")
             else:
                 with st.form("co_form", clear_on_submit=True):
-                    manual = st.text_input("책 바코드 (USB 스캐너로 스캔 또는 자산번호 직접 입력)")
-                    submitted = st.form_submit_button("대출하기", use_container_width=True)
-                if submitted:
-                    ok, res = _checkout(manual, saban, name)
-                    if ok:
-                        st.success(f"✅ **{res['title']}** 대출 완료 · 반납예정일 **{res['due']}**")
-                        st.balloons()
-                    else:
-                        st.error(f"⚠️ {res}")
-            st.markdown("<p class='lib-hint'>USB 스캐너는 바코드 칸에 커서를 두고 스캔하면 자동 입력됩니다.</p>", unsafe_allow_html=True)
+                    manual = st.text_input("책 ISBN 바코드 (USB 스캐너로 스캔 또는 숫자 직접 입력)")
+                    if st.form_submit_button("대출하기", use_container_width=True):
+                        ok, res = _checkout(manual, saban, name)
+                        if ok:
+                            st.success(f"✅ **{res['title']}** 대출 완료 · 반납예정일 **{res['due']}**"); st.balloons()
+                        else:
+                            st.error(f"⚠️ {res}")
+            st.markdown("<p class='lib-hint'>USB 스캐너는 입력칸에 커서를 두고 스캔하면 자동 입력됩니다.</p>", unsafe_allow_html=True)
 
         # ===== 반납 =====
         else:
+            ci_saban = st.text_input("반납자 사번 (같은 책 여러 권이 대출 중일 때만 필요)", key="ci_saban", placeholder="보통은 비워두어도 됩니다")
             if use_cam:
-                img = st.camera_input("반납할 책 바코드를 촬영하세요", key="ci_cam")
+                img = st.camera_input("반납할 책의 ISBN 바코드를 촬영하세요", key="ci_cam")
                 code = _decode(img)
                 if code and st.session_state.get("ci_last") != code:
-                    ok, res = _checkin(code)
-                    st.session_state["ci_last"] = code
+                    ok, res = _checkin(code, ci_saban)
                     if ok:
+                        st.session_state["ci_last"] = code
                         extra = " (연체 반납)" if res["overdue"] else ""
                         wait = f" · 🔔 예약자 {res['waiting']}님 대기" if res["waiting"] else ""
                         st.success(f"✅ **{res['title']}** 반납 완료{extra}{wait}")
+                    elif isinstance(res, dict) and res.get("need_saban"):
+                        st.info(res["msg"])   # 사번 입력 후 재시도 허용 (ci_last 고정 안 함)
                     else:
+                        st.session_state["ci_last"] = code
                         st.error(f"⚠️ {res}")
                 elif img is not None and not code:
                     st.warning("바코드를 인식하지 못했어요. 다시 촬영해 주세요.")
             else:
                 with st.form("ci_form", clear_on_submit=True):
-                    manual = st.text_input("반납할 책 바코드")
-                    submitted = st.form_submit_button("반납하기", use_container_width=True)
-                if submitted:
-                    ok, res = _checkin(manual)
-                    if ok:
-                        extra = " (연체 반납)" if res["overdue"] else ""
-                        wait = f" · 🔔 예약자 {res['waiting']}님 대기" if res["waiting"] else ""
-                        st.success(f"✅ **{res['title']}** 반납 완료{extra}{wait}")
-                    else:
-                        st.error(f"⚠️ {res}")
-            st.markdown("<p class='lib-hint'>반납은 사번 없이 책 바코드만 스캔하면 됩니다.</p>", unsafe_allow_html=True)
+                    manual = st.text_input("반납할 책 ISBN 바코드")
+                    if st.form_submit_button("반납하기", use_container_width=True):
+                        ok, res = _checkin(manual, ci_saban)
+                        if ok:
+                            extra = " (연체 반납)" if res["overdue"] else ""
+                            wait = f" · 🔔 예약자 {res['waiting']}님 대기" if res["waiting"] else ""
+                            st.success(f"✅ **{res['title']}** 반납 완료{extra}{wait}")
+                        elif isinstance(res, dict) and res.get("need_saban"):
+                            st.info(res["msg"])
+                        else:
+                            st.error(f"⚠️ {res}")
+            st.markdown("<p class='lib-hint'>반납은 보통 책 바코드만 스캔하면 됩니다. 같은 책 여러 권이 동시에 대출 중일 때만 사번을 넣어 주세요.</p>", unsafe_allow_html=True)
 
     # ---------------- 도서 검색 ----------------
     with tab_search:
@@ -523,25 +633,25 @@ def run_library():
         ql = q.strip().lower()
         if ql:
             books = [b for b in books if any(
-                ql in str(b.get(k, "")).lower() for k in ["title", "author", "isbn", "asset_id", "category", "publisher"])]
+                ql in str(b.get(k, "")).lower() for k in ["title", "author", "isbn", "category", "publisher"])]
         books = sorted(books, key=lambda b: str(b.get("title", "")))
-        st.caption(f"총 {len(books)}권")
+        st.caption(f"총 {len(books)}종")
         for b in books[:100]:
             cover = f"<img src='{b.get('cover')}'>" if b.get("cover") else "<img>"
             meta = " · ".join([str(b.get(k)) for k in ["author", "publisher", "year"] if b.get(k)])
             st.markdown(f"""<div class="book-card">{cover}
                 <div><b>{b.get('title')}</b><br>
                 <span class="lib-hint">{meta}</span><br>
-                <span class="lib-hint">자산번호 {b.get('asset_id')} · 위치 {b.get('location') or '-'}</span><br>
-                {_status_badge(b.get('status', '대출가능'))}</div></div>""", unsafe_allow_html=True)
-            if b.get("status") in ("대출중", "예약중"):
+                <span class="lib-hint">{_qty_text(b)} · 위치 {b.get('location') or '-'}</span><br>
+                {_status_badge(_book_avail_label(b))}</div></div>""", unsafe_allow_html=True)
+            if _to_int(b.get("available_qty")) <= 0 and b.get("status") != "폐기":
                 with st.expander(f"🔖 '{b.get('title')}' 예약하기"):
-                    with st.form(f"res_{b.get('asset_id')}", clear_on_submit=True):
+                    with st.form(f"res_{_norm_isbn(b.get('isbn'))}", clear_on_submit=True):
                         rc1, rc2 = st.columns(2)
-                        rs = rc1.text_input("사번", key=f"rs_{b.get('asset_id')}")
-                        rn = rc2.text_input("이름", key=f"rn_{b.get('asset_id')}")
+                        rs = rc1.text_input("사번", key=f"rs_{_norm_isbn(b.get('isbn'))}")
+                        rn = rc2.text_input("이름", key=f"rn_{_norm_isbn(b.get('isbn'))}")
                         if st.form_submit_button("예약 신청"):
-                            ok, msg = _reserve(b.get("asset_id"), rs, rn)
+                            ok, msg = _reserve(b.get("isbn"), rs, rn)
                             (st.success if ok else st.error)(msg)
 
     # ---------------- 내 대출 / 희망도서 ----------------
@@ -555,7 +665,7 @@ def run_library():
                 st.info("현재 대출 중인 도서가 없습니다.")
             for l in mine:
                 over = _is_overdue(l)
-                cnt = int(l.get("renew_count") or 0)
+                cnt = _to_int(l.get("renew_count"))
                 col1, col2 = st.columns([3, 1])
                 status_txt = "🔴 연체" if over else "대출중"
                 col1.markdown(f"**{l.get('title')}**  \n반납예정 {l.get('due_date')} · {status_txt} · 연장 {cnt}/{MAX_RENEW}회")
@@ -594,24 +704,31 @@ def run_library():
                 else:
                     st.error("비밀번호가 올바르지 않습니다.")
         else:
-            if st.button("로그아웃", key="lib_admin_logout"):
+            lo_c, rs_c = st.columns([1, 1])
+            if lo_c.button("로그아웃", key="lib_admin_logout"):
                 st.session_state.lib_admin = False; st.rerun()
+            if rs_c.button("🔄 시트 연결 새로고침", key="lib_reset_conn",
+                           help="구글 시트에서 탭을 지우거나 열을 바꿨을 때 누르세요."):
+                _reset_conn(); st.success("연결을 새로 읽었습니다."); st.rerun()
 
             books = _records("books")
             loans = _records("loans")
             active = [l for l in loans if l.get("status") == "대출중"]
             overdue = [l for l in active if _is_overdue(l)]
             wishes = [w for w in _records("wishlist") if w.get("status") == "접수"]
+            live_books = [b for b in books if b.get("status") != "폐기"]
+            total_copies = sum(_to_int(b.get("total_qty")) for b in live_books)
 
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("총 장서", len([b for b in books if b.get("status") != "폐기"]))
+            m1.metric("총 장서(권)", total_copies)
             m2.metric("대출 중", len(active))
             m3.metric("연체", len(overdue))
             m4.metric("희망도서", len(wishes))
+            st.caption(f"도서 종수: {len(live_books)}종 · 회원 {len(_records('members'))}명")
 
-            with st.expander("➕ 도서 등록", expanded=True):
+            with st.expander("➕ 도서 등록  (같은 ISBN을 다시 등록하면 수량이 늘어납니다)", expanded=True):
                 ic1, ic2 = st.columns([3, 1])
-                isbn_in = ic1.text_input("ISBN (조회로 자동 채우기)", key="reg_isbn")
+                isbn_in = ic1.text_input("ISBN (스캔 또는 입력) *", key="reg_isbn")
                 if ic2.button("ISBN 조회", key="reg_lookup", use_container_width=True):
                     info, err = _lookup_isbn(isbn_in)
                     if info:
@@ -621,7 +738,6 @@ def run_library():
                     else:
                         st.warning(err or "도서 정보를 찾지 못했습니다. 직접 입력해 주세요.")
                 with st.form("book_form", clear_on_submit=True):
-                    asset = st.text_input("자산번호(책에 붙일 바코드) *")
                     title = st.text_input("제목 *", value=st.session_state.get("reg_title", ""))
                     bc1, bc2 = st.columns(2)
                     author = bc1.text_input("저자", value=st.session_state.get("reg_author", ""))
@@ -629,12 +745,14 @@ def run_library():
                     bc3, bc4 = st.columns(2)
                     year = bc3.text_input("출판연도", value=st.session_state.get("reg_year", ""))
                     category = bc4.text_input("분류", value=st.session_state.get("reg_category", ""))
-                    location = st.text_input("위치 (예: A-3)")
+                    bc5, bc6 = st.columns(2)
+                    location = bc5.text_input("위치 (예: A-3)")
+                    qty = bc6.number_input("수량(권수)", min_value=1, value=1, step=1)
                     if st.form_submit_button("등록", use_container_width=True):
                         ok, msg = _add_book({
-                            "asset_id": asset, "isbn": isbn_in, "title": title, "author": author,
-                            "publisher": publisher, "year": year, "category": category,
-                            "location": location, "cover": st.session_state.get("reg_cover", "")})
+                            "isbn": isbn_in, "title": title, "author": author, "publisher": publisher,
+                            "year": year, "category": category, "location": location,
+                            "qty": qty, "cover": st.session_state.get("reg_cover", "")})
                         if ok:
                             for k in ["reg_title", "reg_author", "reg_publisher", "reg_year", "reg_category", "reg_cover"]:
                                 st.session_state[k] = ""
@@ -667,10 +785,10 @@ def run_library():
 
             with st.expander(f"📗 전체 대출 현황 ({len(active)})"):
                 if active:
-                    df = pd.DataFrame([{"도서": l.get("title"), "대출자": f"{l.get('name')}({l.get('saban')})",
-                                        "대출일": l.get("loan_date"), "반납예정": l.get("due_date"),
-                                        "연체": "🔴" if _is_overdue(l) else ""} for l in active])
-                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    st.dataframe(pd.DataFrame([{"도서": l.get("title"), "대출자": f"{l.get('name')}({l.get('saban')})",
+                                               "대출일": l.get("loan_date"), "반납예정": l.get("due_date"),
+                                               "연체": "🔴" if _is_overdue(l) else ""} for l in active]),
+                                 use_container_width=True, hide_index=True)
                 else:
                     st.info("대출 중인 도서가 없습니다.")
 
