@@ -21,7 +21,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v5 (2026-07-29 · 도서관 디자인)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
+LIB_VER    = "v6 (2026-07-29 · 글씨·표지 정리)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 LOAN_DAYS  = 14
@@ -640,11 +640,39 @@ def _esc(x):
 
 _ST_CLASS = {"대출가능": "ok", "대출중": "no", "예약중": "wait", "폐기": "off"}
 
+def _clean_author(raw):
+    """'지은이: 고현숙,김병헌,...' 처럼 지저분한 저자 값을 보기 좋게 정리한다.
+       - 앞에 붙은 '지은이:' '저자:' 같은 말머리를 떼고
+       - 사람이 여럿이면 '고현숙 외 8명' 으로 줄인다."""
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    # 말머리 제거 (지은이: / 저자 : / 글·그림 : ...)
+    for head in ("지은이", "저자", "엮은이", "글쓴이", "글", "author", "Author"):
+        for sep in (":", "："):
+            if s.startswith(head + sep) or s.startswith(head + " " + sep):
+                s = s.split(sep, 1)[1]
+                break
+    s = s.strip(" ·,;")
+    # 옮긴이/그림 등 뒤에 붙은 부분은 잘라 낸다
+    for cut in ("옮긴이", "번역", "그림", "감수"):
+        idx = s.find(cut)
+        if idx > 0:
+            s = s[:idx]
+    s = s.strip(" ·,;|/")
+    names = [n.strip() for n in s.replace(";", ",").replace("|", ",").replace("/", ",").split(",")]
+    names = [n for n in names if n]
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0][:24]
+    return f"{names[0][:20]} 외 {len(names) - 1}명"
+
 def _cover_html(book, title):
     """표지 그림. 표지가 없으면 책등(스파인) 모양을 그려서 대신 보여준다."""
     url = str((book or {}).get("cover", "") or "").strip()
     if url:
-        return f"<div class='lib-cv'><img src='{_esc(url)}' loading='lazy'></div>"
+        return f"<div class='lib-cv'><img src='{_esc(url)}' loading='lazy' alt=''></div>"
     short = _esc(title)[:28]
     return (f"<div class='lib-cv lib-cv-none'><div class='lib-cv-txt'>{short}</div>"
             f"<div class='lib-cv-emb'>大韓飼料<br>圖書</div></div>")
@@ -653,7 +681,8 @@ def _shelf_item(it, key):
     """책장 한 칸: 표지 + 제목 + 상태 + (대출가능일 때) 대출 버튼."""
     b = it.get("book") or None
     title = str((b or {}).get("title", "") or it.get("fallback", "") or "제목 없음")
-    author = str((b or {}).get("author", "") or "")
+    author_raw = str((b or {}).get("author", "") or "")
+    author = _clean_author(author_raw)
     loc = str((b or {}).get("location", "") or "")
     label = _book_avail_label(b)
     cls = _ST_CLASS.get(label, "off")
@@ -667,8 +696,8 @@ def _shelf_item(it, key):
 
     st.markdown(
         f"<div class='lib-bk'>{rank_html}{_cover_html(b, title)}"
-        f"<div class='lib-tt'>{_esc(title)}</div>"
-        f"<div class='lib-au'>{_esc(author) or '&nbsp;'}</div>"
+        f"<div class='lib-tt' title='{_esc(title)}'>{_esc(title)}</div>"
+        f"<div class='lib-au' title='{_esc(author_raw)}'>{_esc(author) or '&nbsp;'}</div>"
         f"<div class='lib-mt'>{_esc(meta2) or '&nbsp;'}</div>"
         f"{cnt_html}"
         f"<div class='lib-st {cls}'>● {label}</div></div>",
@@ -721,7 +750,7 @@ def run_library():
 
 LIB_CSS = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@700;800&family=Noto+Sans+KR:wght@400;500;700&display=swap');
 
 /* ---------- 바탕: 크림색 종이 ---------- */
 .stApp, [data-testid="stAppViewContainer"] {
@@ -732,9 +761,16 @@ LIB_CSS = """
 }
 [data-testid="stHeader"] { background: transparent; }
 
-/* ---------- 글꼴 ---------- */
+/* ---------- 글꼴 ----------
+   본문은 읽기 편한 고딕체(Noto Sans KR), 큰 제목만 명조체로 멋을 냅니다. */
+html, body, .stApp, [data-testid="stAppViewContainer"], .stApp * {
+  font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif;
+}
 .lib-wrap, .lib-wrap * { color:#2B2620; }
-h1, h2, h3, .lib-serif { font-family:'Nanum Myeongjo', Batang, serif !important; letter-spacing:-.01em; }
+.stApp { font-size:15px; }
+.lib-serif, .lib-head h1, .lib-head .em, .lib-sec h2, .lib-cv-txt, .lib-cv-emb, .lib-rank {
+  font-family:'Nanum Myeongjo', Batang, serif !important; letter-spacing:-.01em;
+}
 
 /* ---------- 간판 ---------- */
 .lib-head { text-align:center; padding:26px 10px 14px; }
@@ -744,7 +780,7 @@ h1, h2, h3, .lib-serif { font-family:'Nanum Myeongjo', Batang, serif !important;
   font-family:'Nanum Myeongjo',serif; }
 .lib-head .rule { width:220px; height:0; margin:14px auto 12px; border-top:2px solid #1F4A3C;
   border-bottom:1px solid #1F4A3C; padding-top:3px; }
-.lib-head .sub { font-size:.86rem; color:#6B6154; font-family:'Nanum Myeongjo',serif; }
+.lib-head .sub { font-size:.88rem; color:#645B4E; line-height:1.6; }
 .lib-head .ver { font-size:.7rem; color:#A79A85; margin-top:6px; }
 
 /* ---------- 구역 제목 ---------- */
@@ -752,17 +788,20 @@ h1, h2, h3, .lib-serif { font-family:'Nanum Myeongjo', Batang, serif !important;
   border-bottom:1px solid #E0D6C3; padding-bottom:8px; }
 .lib-sec h2 { font-size:1.28rem !important; font-weight:800; margin:0 !important; color:#1F4A3C;
   padding:0 !important; }
-.lib-sec .lib-sec-sub { font-size:.8rem; color:#8C806E; font-family:'Nanum Myeongjo',serif; }
+.lib-sec .lib-sec-sub { font-size:.82rem; color:#8C806E; }
 
 /* ---------- 책 한 칸 ---------- */
-.lib-bk { position:relative; padding:2px 2px 6px; }
-.lib-cv { position:relative; height:196px; border-radius:2px 7px 7px 2px; overflow:hidden;
-  background:#EFE7D7; border:1px solid #DCCFB6;
+.lib-bk { position:relative; padding:2px 2px 6px; text-align:center; }
+.lib-cv { position:relative; width:100%; max-width:170px; margin:0 auto;
+  aspect-ratio:3/4; border-radius:2px 7px 7px 2px; overflow:hidden;
+  background:#F1E9D9; border:1px solid #DCCFB6;
   box-shadow:0 12px 16px -12px rgba(43,38,32,.65), 0 2px 3px rgba(43,38,32,.14);
   transition:transform .16s ease, box-shadow .16s ease; }
 .lib-bk:hover .lib-cv { transform:translateY(-4px);
   box-shadow:0 18px 22px -12px rgba(43,38,32,.6), 0 3px 5px rgba(43,38,32,.18); }
-.lib-cv img { width:100%; height:100%; object-fit:cover; display:block; }
+.lib-cv img { width:100%; height:100%; object-fit:contain; display:block;
+  background:#F1E9D9; }
+@supports not (aspect-ratio: 3 / 4) { .lib-cv { height:226px; } }
 .lib-cv::before { content:""; position:absolute; left:0; top:0; bottom:0; width:10px; z-index:2;
   background:linear-gradient(90deg, rgba(0,0,0,.30), rgba(0,0,0,.05) 62%, rgba(255,255,255,.20)); }
 .lib-cv-none { display:flex; flex-direction:column; justify-content:space-between; padding:16px 12px 12px 18px;
@@ -772,13 +811,14 @@ h1, h2, h3, .lib-serif { font-family:'Nanum Myeongjo', Batang, serif !important;
 .lib-cv-emb { font-family:'Nanum Myeongjo',serif; font-size:.62rem; line-height:1.35; text-align:right;
   color:#C9A96A; letter-spacing:.12em; }
 
-.lib-tt { font-family:'Nanum Myeongjo',serif; font-weight:700; font-size:.95rem; line-height:1.35;
-  margin:12px 0 3px; color:#2B2620; min-height:2.6em;
+.lib-tt { font-weight:700; font-size:.95rem; line-height:1.45;
+  margin:12px 0 4px; color:#241F19; min-height:2.9em; letter-spacing:-.01em;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-.lib-au { font-size:.78rem; color:#7A6F5E; }
-.lib-mt { font-size:.72rem; color:#9A8E7A; margin-top:2px; }
-.lib-cnt { font-size:.72rem; color:#A9782E; font-weight:700; margin-top:2px; }
-.lib-st { font-size:.78rem; font-weight:700; margin:6px 0 8px; }
+.lib-au { font-size:.82rem; color:#6B6154; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lib-mt { font-size:.78rem; color:#8C806E; margin-top:3px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lib-cnt { font-size:.78rem; color:#96691F; font-weight:700; margin-top:3px; }
+.lib-st { font-size:.82rem; font-weight:700; margin:7px 0 9px; }
 .lib-st.ok   { color:#1F6B4F; }
 .lib-st.no   { color:#A33A2E; }
 .lib-st.wait { color:#B07A16; }
@@ -800,7 +840,7 @@ h1, h2, h3, .lib-serif { font-family:'Nanum Myeongjo', Batang, serif !important;
 
 /* ---------- 버튼 ---------- */
 .stButton > button {
-  font-family:'Nanum Myeongjo',serif !important; font-weight:700 !important;
+  font-weight:700 !important; font-size:.92rem !important;
   border-radius:6px !important; border:1px solid #C9BCA3 !important;
   background:#FFFDF7 !important; color:#3A3327 !important;
   box-shadow:0 1px 2px rgba(43,38,32,.08) !important; transition:all .15s ease !important;
@@ -822,26 +862,27 @@ h1, h2, h3, .lib-serif { font-family:'Nanum Myeongjo', Batang, serif !important;
 }
 .stTextInput input:focus, .stTextArea textarea:focus { border-color:#1F4A3C !important;
   box-shadow:0 0 0 2px rgba(31,74,60,.14) !important; }
-label, .stCheckbox, .stRadio { font-family:'Nanum Myeongjo',serif !important; }
+
 [data-testid="stWidgetLabel"] p { font-weight:700 !important; color:#4A4234 !important; }
 
 /* ---------- 알림상자 / 펼침 ---------- */
 [data-testid="stExpander"] { border:1px solid #E0D6C3 !important; border-radius:8px !important;
   background:#FFFDF7 !important; }
-[data-testid="stNotification"] { border-radius:8px !important; font-family:'Nanum Myeongjo',serif; }
+[data-testid="stNotification"] { border-radius:8px !important; font-size:.92rem; }
 hr { border-color:#E0D6C3 !important; }
 
 /* ---------- 대출 안내 쪽지 ---------- */
 .lib-note { border:1px solid #C9A96A; border-left:5px solid #A9782E; background:#FFF9EC;
-  border-radius:6px; padding:14px 16px; font-family:'Nanum Myeongjo',serif; }
+  border-radius:6px; padding:14px 16px; line-height:1.7; }
 .lib-note b { color:#1F4A3C; }
-.lib-hint { color:#8C806E; font-size:.82em; font-family:'Nanum Myeongjo',serif; }
+.lib-hint { color:#8C806E; font-size:.84em; }
 
 /* ---------- 좁은 화면(휴대폰) ---------- */
 @media (max-width: 640px) {
   .lib-head h1 { font-size:1.7rem; }
-  .lib-cv { height:132px; }
-  .lib-tt { font-size:.84rem; }
+  .lib-cv { max-width:128px; }
+  @supports not (aspect-ratio: 3 / 4) { .lib-cv { height:170px; } }
+  .lib-tt { font-size:.88rem; }
 }
 </style>
 """
