@@ -9,7 +9,7 @@
 #  - ISBN 조회: 국립중앙도서관(공공데이터) + 구글북스(해외 보조)
 # ==========================================================
 from utils import *          # st, datetime, uuid, pd, gspread, time, ServiceAccountCredentials 등
-import urllib.request, json
+import urllib.request, json, re
 
 # 휴대폰 카메라 바코드 해석용 (없어도 나머지 기능은 동작)
 try:
@@ -21,7 +21,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v6 (2026-07-29 · 글씨·표지 정리)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
+LIB_VER    = "v7 (2026-07-29 · 책 상세보기)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 LOAN_DAYS  = 14
@@ -35,7 +35,7 @@ SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 # 각 시트(탭) 헤더 - 없으면 자동 생성
 HEADERS = {
     "books":        ["isbn", "title", "author", "publisher", "year", "category", "location",
-                     "total_qty", "available_qty", "status", "cover"],
+                     "total_qty", "available_qty", "status", "cover", "summary"],
     "members":      ["saban", "name", "joined"],
     "loans":        ["loan_id", "isbn", "title", "saban", "name",
                      "loan_date", "due_date", "return_date", "renew_count", "status"],
@@ -116,6 +116,21 @@ def _col(name, field):
     if field in hdr:
         return hdr.index(field) + 1
     raise LibSchema(f"'{name}' 탭에 '{field}' 열이 없습니다. 👑 관리자 메뉴의 '시트 형식 변환'을 먼저 실행해 주세요.")
+
+def _ensure_col(name, field):
+    """시트에 그 열이 없으면 '맨 끝에' 새 열을 하나 만들어 준다.
+       기존 값은 건드리지 않으므로 안전합니다."""
+    hdr = _header(name)
+    if field in hdr:
+        return True
+    try:
+        ws = _ws(name)
+        _retry(ws.update_cell, 1, len(hdr) + 1, field)
+        _ws_cache()["__hdr__" + name] = hdr + [field]
+        _records.clear()
+        return True
+    except Exception:
+        return False
 
 def _needs_migration():
     """books/loans 탭이 아직 예전(자산번호) 형식인지 확인."""
@@ -514,6 +529,23 @@ def _pick(d, *names):
             return str(v).strip()
     return ""
 
+def _fetch_text(url, limit=1200):
+    """국립중앙도서관이 알려주는 '책 소개' 파일을 받아 글자만 남긴다."""
+    url = str(url or "").strip()
+    if not url.startswith("http"):
+        return ""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            raw = resp.read().decode("utf-8", "ignore")
+    except Exception:
+        return ""
+    txt = re.sub(r"<[^>]+>", " ", raw)
+    txt = txt.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    txt = re.sub(r"[ \t\r\f\v]+", " ", txt)
+    txt = re.sub(r"\n{3,}", "\n\n", txt).strip()
+    return txt[:limit]
+
 def _lookup_nl(isbn, key):
     """국립중앙도서관 서지정보(SEOJI) API."""
     try:
@@ -533,6 +565,7 @@ def _lookup_nl(isbn, key):
             "isbn": isbn, "title": title, "author": _pick(d, "AUTHOR"),
             "publisher": _pick(d, "PUBLISHER"), "year": predate[:4] if predate else "",
             "category": _pick(d, "SUBJECT"), "cover": _pick(d, "TITLE_URL", "BOOK_TB_URL"),
+            "summary": _fetch_text(_pick(d, "BOOK_INTRODUCTION_URL", "BOOK_SUMMARY_URL")),
         }
     except Exception:
         return None
@@ -551,7 +584,8 @@ def _lookup_google(isbn):
             cover = (il.get("thumbnail") or il.get("smallThumbnail") or "").replace("http://", "https://")
         return {"isbn": isbn, "title": v.get("title", ""), "author": ", ".join(v.get("authors", [])),
                 "publisher": v.get("publisher", ""), "year": str(v.get("publishedDate", ""))[:4],
-                "category": ", ".join(v.get("categories", [])), "cover": cover}
+                "category": ", ".join(v.get("categories", [])), "cover": cover,
+                "summary": str(v.get("description", "") or "")[:1500]}
     except Exception:
         return None
 
@@ -564,6 +598,11 @@ def _lookup_isbn(isbn):
     if key:
         info = _lookup_nl(isbn, key)
         if info:
+            if not str(info.get("summary", "")).strip():
+                g = _lookup_google(isbn) or {}
+                info["summary"] = g.get("summary", "")
+                if not str(info.get("cover", "")).strip():
+                    info["cover"] = g.get("cover", "")
             return info, None
     info = _lookup_google(isbn)
     if info:
@@ -592,10 +631,15 @@ def _add_book(b):
                     _retry(ws.update_cell, i + 2, _col("books", "status"), "정상")
                 _refresh()
                 return True, f"기존 도서에 {qty}권 추가 (총 {t}권): {existing.get('title')}"
-    _retry(_ws("books").append_row,
-           [isbn, b.get("title", ""), b.get("author", ""), b.get("publisher", ""),
-            b.get("year", ""), b.get("category", ""), b.get("location", ""),
-            qty, qty, "정상", b.get("cover", "")])
+    if str(b.get("summary", "")).strip():
+        _ensure_col("books", "summary")
+    vals = {"isbn": isbn, "title": b.get("title", ""), "author": b.get("author", ""),
+            "publisher": b.get("publisher", ""), "year": b.get("year", ""),
+            "category": b.get("category", ""), "location": b.get("location", ""),
+            "total_qty": qty, "available_qty": qty, "status": "정상",
+            "cover": b.get("cover", ""), "summary": str(b.get("summary", ""))[:1500]}
+    hdr = _header("books")
+    _retry(_ws("books").append_row, [vals.get(h, "") for h in hdr])
     _refresh()
     return True, f"등록 완료: {b.get('title')} ({qty}권)"
 
@@ -625,8 +669,18 @@ def _qty_text(book):
 
 MENU = ["🏠 홈", "📕 대출·반납", "🔍 도서 검색", "🙋 내 대출·희망도서", "👑 관리자"]
 
+def _goto_detail(isbn):
+    """책 카드의 [자세히] → 책 상세 화면으로."""
+    isbn = _norm_isbn(isbn)
+    if not isbn:
+        return
+    st.session_state["lib_detail"] = isbn
+    st.session_state["lib_detail_back"] = st.session_state.get("lib_menu", MENU[0])
+    st.rerun()
+
 def _goto_lend(book):
     """[바로 대출하기] → 대출·반납 메뉴로 이동하면서 ISBN을 미리 채워 둔다."""
+    st.session_state.pop("lib_detail", None)
     st.session_state["lib_menu"] = MENU[1]
     st.session_state["lib_mode_want"] = "📕 대출하기"
     st.session_state["lib_prefill_isbn"] = _norm_isbn(book.get("isbn", ""))
@@ -703,10 +757,16 @@ def _shelf_item(it, key):
         f"<div class='lib-st {cls}'>● {label}</div></div>",
         unsafe_allow_html=True)
 
+    isbn = _norm_isbn((b or {}).get("isbn", ""))
     if label == "대출가능":
-        if st.button("빌리기", key=f"go_{key}", use_container_width=True, type="primary"):
+        bc1, bc2 = st.columns(2)
+        if bc1.button("자세히", key=f"dt_{key}", use_container_width=True):
+            _goto_detail(isbn)
+        if bc2.button("빌리기", key=f"go_{key}", use_container_width=True, type="primary"):
             _goto_lend(b)
     else:
+        if st.button("자세히", key=f"dt_{key}", use_container_width=True, disabled=not isbn):
+            _goto_detail(isbn)
         st.markdown("<div class='lib-btn-off'>대출 불가</div>", unsafe_allow_html=True)
 
 def _shelf(items, keyprefix, per_row=4):
@@ -721,6 +781,126 @@ def _shelf(items, keyprefix, per_row=4):
                 if j < len(chunk):
                     _shelf_item(chunk[j], f"{keyprefix}_{start + j}")
         st.markdown("<div class='lib-plank'></div>", unsafe_allow_html=True)
+
+def _next_due_text(isbn):
+    """대출 중인 이 책이 언제 돌아오는지(가장 빠른 반납예정일)."""
+    isbn = _norm_isbn(isbn)
+    dues = []
+    for l in _records("loans"):
+        if _norm_isbn(l.get("isbn")) != isbn:
+            continue
+        if str(l.get("status", "")).strip() in ("반납", "반납완료"):
+            continue
+        if str(l.get("return_date", "")).strip():
+            continue
+        d = str(l.get("due_date", "")).strip()
+        if d:
+            dues.append(d)
+    return sorted(dues)[0] if dues else ""
+
+def _book_summary_text(book):
+    """책 소개 글. 시트에 없으면 빈 문자열."""
+    return str((book or {}).get("summary", "") or "").strip()
+
+def _save_summary(isbn, text):
+    """책 소개를 books 시트에 저장한다."""
+    isbn = _norm_isbn(isbn)
+    if not _ensure_col("books", "summary"):
+        return False, "시트에 'summary' 열을 만들지 못했습니다. 구글 시트 공유 권한을 확인해 주세요."
+    ws = _ws("books"); c = _col("books", "summary")
+    for i, r in enumerate(_records("books")):
+        if _norm_isbn(r.get("isbn")) == isbn:
+            _retry(ws.update_cell, i + 2, c, str(text or "")[:1500])
+            _refresh()
+            return True, "책 소개를 저장했습니다."
+    return False, "해당 ISBN의 책을 찾지 못했습니다."
+
+def _detail_page(isbn):
+    """책 한 권의 자세한 정보 화면."""
+    b = _find_book(isbn)
+    if st.button("◀ 목록으로 돌아가기", key="dt_back"):
+        st.session_state.pop("lib_detail", None)
+        st.rerun()
+    if not b:
+        st.warning("책을 찾지 못했습니다. 목록으로 돌아가 주세요.")
+        return
+
+    title = str(b.get("title", "") or "제목 없음")
+    label = _book_avail_label(b)
+    cls = _ST_CLASS.get(label, "off")
+
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        st.markdown(f"<div class='lib-bk lib-bk-big'>{_cover_html(b, title)}</div>",
+                    unsafe_allow_html=True)
+    with c2:
+        rows = [("저자", _clean_author(b.get("author")) or "-"),
+                ("출판사", str(b.get("publisher", "") or "-")),
+                ("출판연도", str(b.get("year", "") or "-")),
+                ("분류", str(b.get("category", "") or "-")),
+                ("책 위치", str(b.get("location", "") or "-")),
+                ("ISBN", str(b.get("isbn", "") or "-"))]
+        info = "".join(f"<tr><th>{_esc(k)}</th><td>{_esc(v)}</td></tr>" for k, v in rows)
+        st.markdown(
+            f"<div class='lib-dt'><h2>{_esc(title)}</h2>"
+            f"<div class='lib-st {cls}' style='font-size:.95rem'>● {label} "
+            f"<span class='lib-hint'>({_esc(_qty_text(b))})</span></div>"
+            f"<table class='lib-tb'>{info}</table></div>", unsafe_allow_html=True)
+
+        if label == "대출가능":
+            if st.button("📕 이 책 빌리기", key="dt_lend", type="primary", use_container_width=True):
+                _goto_lend(b)
+        elif label in ("대출중", "예약중"):
+            nxt = _next_due_text(b.get("isbn"))
+            if nxt:
+                st.markdown(f"<p class='lib-hint'>반납 예정일 : {_esc(nxt)}</p>", unsafe_allow_html=True)
+            with st.expander("🔖 이 책 예약하기"):
+                with st.form(f"dt_res_{_norm_isbn(isbn)}", clear_on_submit=True):
+                    rc1, rc2 = st.columns(2)
+                    rs = rc1.text_input("사번")
+                    rn = rc2.text_input("이름 (처음 이용 시 1회)")
+                    if st.form_submit_button("예약 신청", use_container_width=True, type="primary"):
+                        ok, msg = _reserve(b.get("isbn"), rs, rn)
+                        (st.success if ok else st.error)(msg)
+
+    _sec_title("책 소개", "어떤 책인가요")
+    summ = _book_summary_text(b)
+    if summ:
+        st.markdown(f"<div class='lib-sm'>{_esc(summ)}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='lib-sm lib-sm-none'>아직 등록된 책 소개가 없습니다.</div>",
+                    unsafe_allow_html=True)
+        cs1, cs2 = st.columns([1, 3])
+        if cs1.button("🔎 소개 가져오기", key="dt_fetch", use_container_width=True):
+            with st.spinner("책 소개를 찾는 중입니다..."):
+                info, err = _lookup_isbn(b.get("isbn"))
+            txt = str((info or {}).get("summary", "") or "").strip()
+            if txt:
+                ok, msg = _save_summary(b.get("isbn"), txt)
+                (st.success if ok else st.error)(msg)
+                if ok:
+                    st.rerun()
+            else:
+                st.warning("인터넷에서 이 책의 소개를 찾지 못했습니다. 아래에 직접 적어 주세요.")
+        cs2.markdown("<p class='lib-hint'>버튼을 누르면 국립중앙도서관·구글에서 자동으로 찾아 저장합니다.</p>",
+                     unsafe_allow_html=True)
+
+    with st.expander("✏️ 책 소개 직접 쓰기 / 고치기"):
+        newtxt = st.text_area("책 소개", value=summ, height=180, key=f"dt_txt_{_norm_isbn(isbn)}")
+        pw = st.text_input("관리자 비밀번호", type="password", key=f"dt_pw_{_norm_isbn(isbn)}")
+        if st.button("저장", key=f"dt_save_{_norm_isbn(isbn)}"):
+            if pw != ADMIN_PW and not st.session_state.get("lib_admin"):
+                st.error("관리자 비밀번호가 다릅니다.")
+            else:
+                ok, msg = _save_summary(b.get("isbn"), newtxt)
+                (st.success if ok else st.error)(msg)
+                if ok:
+                    st.rerun()
+
+    cnt = sum(1 for l in _records("loans")
+              if _norm_isbn(l.get("isbn")) == _norm_isbn(isbn))
+    if cnt:
+        st.markdown(f"<p class='lib-hint'>지금까지 {cnt}번 대출되었습니다.</p>", unsafe_allow_html=True)
 
 def _sec_title(text, sub=""):
     sub_html = f"<span class='lib-sec-sub'>{_esc(sub)}</span>" if sub else ""
@@ -763,8 +943,17 @@ LIB_CSS = """
 
 /* ---------- 글꼴 ----------
    본문은 읽기 편한 고딕체(Noto Sans KR), 큰 제목만 명조체로 멋을 냅니다. */
-html, body, .stApp, [data-testid="stAppViewContainer"], .stApp * {
+html, body, .stApp, [data-testid="stAppViewContainer"] {
   font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif;
+}
+/* 버튼·입력칸은 브라우저 기본 글꼴을 쓰므로 따로 물려받게 한다 */
+.stApp button, .stApp input, .stApp textarea, .stApp select { font-family:inherit; }
+/* ⚠️ 스트림릿의 화살표·아이콘은 '아이콘 전용 글꼴'을 씁니다.
+   여기에 한글 글꼴을 씌우면 화살표 대신 arrow_right 같은 글자가 그대로 보입니다. */
+[data-testid="stIconMaterial"], .material-icons, .material-icons-outlined,
+[class*="material-symbols"], [class*="material-icons"], .stApp [data-testid*="Icon"] i {
+  font-family:'Material Symbols Rounded','Material Symbols Outlined','Material Icons' !important;
+  letter-spacing:normal !important;
 }
 .lib-wrap, .lib-wrap * { color:#2B2620; }
 .stApp { font-size:15px; }
@@ -831,6 +1020,22 @@ html, body, .stApp, [data-testid="stAppViewContainer"], .stApp * {
 
 .lib-btn-off { text-align:center; font-size:.82rem; color:#A79A85; border:1px dashed #DCCFB6;
   border-radius:6px; padding:7px 0; background:rgba(255,255,255,.4); }
+
+/* ---------- 책 상세 화면 ---------- */
+.lib-bk-big { text-align:center; }
+.lib-bk-big .lib-cv { max-width:230px; }
+@supports not (aspect-ratio: 3 / 4) { .lib-bk-big .lib-cv { height:306px; } }
+.lib-dt h2 { font-size:1.5rem !important; font-weight:800; color:#1F4A3C;
+  margin:0 0 8px !important; padding:0 !important; line-height:1.4; }
+.lib-tb { width:100%; border-collapse:collapse; margin:14px 0 16px; font-size:.9rem; }
+.lib-tb th { text-align:left; width:92px; padding:7px 0; color:#8C806E; font-weight:500;
+  vertical-align:top; border-bottom:1px solid #EDE5D6; }
+.lib-tb td { padding:7px 0; color:#3A3327; border-bottom:1px solid #EDE5D6;
+  word-break:break-all; }
+.lib-sm { background:#FFFDF7; border:1px solid #E0D6C3; border-left:5px solid #1F4A3C;
+  border-radius:6px; padding:18px 20px; line-height:1.85; font-size:.94rem; color:#3A3327;
+  white-space:pre-wrap; }
+.lib-sm-none { border-left-color:#D6C9B0; color:#8C806E; }
 
 /* ---------- 나무 선반 ---------- */
 .lib-plank { height:15px; margin:4px 0 30px; border-radius:2px;
@@ -922,11 +1127,17 @@ def _run_library():
     for _i, _m in enumerate(MENU):
         if _mcols[_i].button(_m, key=f"lib_nav_{_i}", use_container_width=True,
                              type=("primary" if _m == menu else "secondary")):
-            if _m != menu:
+            if _m != menu or st.session_state.get("lib_detail"):
                 st.session_state["lib_menu"] = _m
+                st.session_state.pop("lib_detail", None)
                 st.rerun()
     st.session_state["lib_menu"] = menu
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+    # 책 카드의 [자세히]를 누르면 목록 대신 상세 화면을 보여준다.
+    if st.session_state.get("lib_detail"):
+        _detail_page(st.session_state["lib_detail"])
+        return
 
     # ---------------- 홈 ----------------
     if menu == MENU[0]:
@@ -1226,8 +1437,8 @@ def _run_library():
                 if ic2.button("ISBN 조회", key="reg_lookup", use_container_width=True):
                     info, err = _lookup_isbn(isbn_in)
                     if info:
-                        for k in ["title", "author", "publisher", "year", "category", "cover"]:
-                            st.session_state[f"reg_{k}"] = info[k]
+                        for k in ["title", "author", "publisher", "year", "category", "cover", "summary"]:
+                            st.session_state[f"reg_{k}"] = info.get(k, "")
                         st.success("정보를 불러왔습니다. 아래에서 확인 후 등록하세요.")
                     else:
                         st.warning(err or "도서 정보를 찾지 못했습니다. 직접 입력해 주세요.")
@@ -1242,17 +1453,46 @@ def _run_library():
                     bc5, bc6 = st.columns(2)
                     location = bc5.text_input("위치 (예: A-3)")
                     qty = bc6.number_input("수량(권수)", min_value=1, value=1, step=1)
+                    summary = st.text_area("책 소개 (ISBN 조회 시 자동으로 채워집니다)",
+                                           value=st.session_state.get("reg_summary", ""), height=120)
                     if st.form_submit_button("등록", use_container_width=True):
                         ok, msg = _add_book({
                             "isbn": isbn_in, "title": title, "author": author, "publisher": publisher,
                             "year": year, "category": category, "location": location,
-                            "qty": qty, "cover": st.session_state.get("reg_cover", "")})
+                            "qty": qty, "cover": st.session_state.get("reg_cover", ""),
+                            "summary": summary})
                         if ok:
-                            for k in ["reg_title", "reg_author", "reg_publisher", "reg_year", "reg_category", "reg_cover"]:
+                            for k in ["reg_title", "reg_author", "reg_publisher", "reg_year",
+                                      "reg_category", "reg_cover", "reg_summary"]:
                                 st.session_state[k] = ""
                             st.success(msg)
                         else:
                             st.error(msg)
+
+            with st.expander("📖 책 소개 한꺼번에 채우기  (소개가 비어 있는 책만)"):
+                _nosum = [b for b in _records("books")
+                          if not str(b.get("summary", "") or "").strip()
+                          and str(b.get("status", "")).strip() != "폐기"]
+                st.markdown(f"소개가 비어 있는 책 : **{len(_nosum)}종**")
+                st.caption("국립중앙도서관·구글에서 자동으로 찾아 시트에 저장합니다. "
+                           "한 번에 최대 10권씩만 처리하니, 책이 많으면 여러 번 눌러 주세요.")
+                if _nosum and st.button("🔎 10권 채우기", key="bulk_sum", use_container_width=True):
+                    _ensure_col("books", "summary")
+                    _done, _fail = [], []
+                    _bar = st.progress(0.0)
+                    _batch = _nosum[:10]
+                    for _i, _b in enumerate(_batch):
+                        _info, _e = _lookup_isbn(_b.get("isbn"))
+                        _t = str((_info or {}).get("summary", "") or "").strip()
+                        if _t:
+                            _ok, _m = _save_summary(_b.get("isbn"), _t)
+                            (_done if _ok else _fail).append(str(_b.get("title", "")))
+                        else:
+                            _fail.append(str(_b.get("title", "")))
+                        _bar.progress((_i + 1) / len(_batch))
+                    st.success(f"{len(_done)}권 채웠습니다." + (f" (못 찾은 책 {len(_fail)}권)" if _fail else ""))
+                    if _fail:
+                        st.caption("못 찾은 책 : " + ", ".join(_fail[:10]))
 
             with st.expander("👤 회원 등록"):
                 with st.form("member_form", clear_on_submit=True):
