@@ -612,6 +612,44 @@ def _qty_text(book):
         return ""
     return f"대출가능 {_to_int(book.get('available_qty'))} / 총 {_to_int(book.get('total_qty'))}권"
 
+def _me():
+    """화면 위쪽 '내 정보'에 입력해 둔 사번·이름."""
+    return (str(st.session_state.get("lib_me_saban", "")).strip(),
+            str(st.session_state.get("lib_me_name", "")).strip())
+
+def _flash():
+    """바로 대출 결과 메시지를 화면 위쪽에 한 번 보여준다."""
+    m = st.session_state.pop("lib_flash", None)
+    if not m:
+        return
+    kind, text = m
+    {"ok": st.success, "warn": st.warning, "err": st.error}.get(kind, st.info)(text)
+    if kind == "ok":
+        st.balloons()
+
+def _quick_loan(book, keyprefix):
+    """'대출가능'인 책 아래에 [바로 대출하기] 버튼을 그린다."""
+    if not book or _book_avail_label(book) != "대출가능":
+        return
+    isbn = book.get("isbn", "")
+    if st.button("📕 바로 대출하기", key=f"ql_{keyprefix}_{_norm_isbn(isbn)}",
+                 use_container_width=True):
+        saban, name = _me()
+        if not saban:
+            st.session_state["lib_flash"] = ("warn", "먼저 화면 위쪽 **내 정보**에 사번을 입력해 주세요.")
+        else:
+            try:
+                ok, res = _checkout(isbn, saban, name)
+            except Exception as e:
+                st.session_state["lib_flash"] = ("err", f"대출 처리 중 오류가 났습니다. 잠시 후 다시 시도해 주세요. ({e})")
+            else:
+                if ok:
+                    st.session_state["lib_flash"] = (
+                        "ok", f"✅ **{res['title']}** 대출 완료 · 반납예정일 **{res['due']}** ({res['name']}님)")
+                else:
+                    st.session_state["lib_flash"] = ("err", f"⚠️ {res}")
+        st.rerun()
+
 def _home_card(book, rank=None, count=None, title_fallback=""):
     if book:
         cover = f"<img src='{book.get('cover')}'>" if book.get("cover") else "<img>"
@@ -672,6 +710,14 @@ def _run_library():
                  "그래서 모든 책이 '대출중'으로 보이고, 대출·반납이 정상 동작하지 않습니다.\n\n"
                  "👑 **관리자 탭 → 🔧 시트 형식 변환** 을 한 번 실행해 주세요. "
                  "기존 도서·대출 기록은 그대로 옮겨지고, 예전 탭은 백업으로 남습니다.")
+
+    if not _old_sheet:
+        mc1, mc2, mc3 = st.columns([1, 1, 2])
+        mc1.text_input("내 사번", key="lib_me_saban", placeholder="사번")
+        mc2.text_input("이름 (처음 1회)", key="lib_me_name", placeholder="이름")
+        mc3.caption("👆 사번을 적어 두면, 아래 목록에서 **대출가능**인 책의 "
+                    "[📕 바로 대출하기] 버튼으로 스캔 없이 바로 빌릴 수 있어요.")
+    _flash()
     st.markdown("---")
 
     tab_home, tab_lend, tab_search, tab_my, tab_admin = st.tabs(
@@ -689,6 +735,7 @@ def _run_library():
         else:
             for b in recent:
                 _home_card(b)
+                _quick_loan(b, "recent")
 
         st.markdown("---")
         st.subheader("🔥 많이 대출된 책 TOP 5")
@@ -704,6 +751,7 @@ def _run_library():
             for rank, (title, c) in enumerate(top, start=1):
                 book = next((b for b in home_books if str(b.get("title")).strip() == title), None)
                 _home_card(book, rank=rank, count=c, title_fallback=title)
+                _quick_loan(book, "top")
 
     # ---------------- 대출 / 반납 ----------------
     with tab_lend:
@@ -796,6 +844,7 @@ def _run_library():
                 <span class="lib-hint">{meta}</span><br>
                 <span class="lib-hint">{_qty_text(b)} · 위치 {b.get('location') or '-'}</span><br>
                 {_status_badge(_book_avail_label(b))}</div></div>""", unsafe_allow_html=True)
+            _quick_loan(b, "search")
             if _to_int(b.get("available_qty")) <= 0 and b.get("status") != "폐기":
                 with st.expander(f"🔖 '{b.get('title')}' 예약하기"):
                     with st.form(f"res_{_norm_isbn(b.get('isbn'))}", clear_on_submit=True):
