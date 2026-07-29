@@ -21,7 +21,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v4 (2026-07-29 · 메뉴 버튼 고정)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
+LIB_VER    = "v5 (2026-07-29 · 도서관 디자인)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 LOAN_DAYS  = 14
@@ -633,40 +633,69 @@ def _goto_lend(book):
     st.session_state["lib_prefill_title"] = str(book.get("title", ""))
     st.rerun()
 
-def _row2(ratio=(5, 1.6)):
-    """왼쪽=책 카드, 오른쪽=버튼. 버튼을 카드 아래쪽(=상태바 옆)에 맞춘다."""
-    try:
-        return st.columns(list(ratio), vertical_alignment="bottom")
-    except TypeError:      # 스트림릿 버전이 낮으면 옵션 없이
-        return st.columns(list(ratio))
+def _esc(x):
+    """HTML에 그대로 넣어도 안전하도록 특수문자를 바꿔 준다."""
+    return (str(x if x is not None else "")
+            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
 
-def _book_row(book, keyprefix, key_id, rank=None, count=None, title_fallback=""):
-    """책 한 줄 = 카드 + (대출가능일 때) 상태바 옆 [📕 바로 대출하기] 버튼."""
-    can = bool(book) and _book_avail_label(book) == "대출가능"
-    left, right = _row2()
-    with left:
-        _home_card(book, rank=rank, count=count, title_fallback=title_fallback)
-    with right:
-        if can:
-            if st.button("📕 바로 대출하기", key=f"go_{keyprefix}_{key_id}", use_container_width=True):
-                _goto_lend(book)
+_ST_CLASS = {"대출가능": "ok", "대출중": "no", "예약중": "wait", "폐기": "off"}
 
-def _home_card(book, rank=None, count=None, title_fallback=""):
-    if book:
-        cover = f"<img src='{book.get('cover')}'>" if book.get("cover") else "<img>"
-        title = book.get("title") or title_fallback
-        meta = " · ".join([str(book.get(k)) for k in ["author", "publisher", "year"] if book.get(k)])
-        loc = book.get("location") or "-"
-        qty = _qty_text(book)
+def _cover_html(book, title):
+    """표지 그림. 표지가 없으면 책등(스파인) 모양을 그려서 대신 보여준다."""
+    url = str((book or {}).get("cover", "") or "").strip()
+    if url:
+        return f"<div class='lib-cv'><img src='{_esc(url)}' loading='lazy'></div>"
+    short = _esc(title)[:28]
+    return (f"<div class='lib-cv lib-cv-none'><div class='lib-cv-txt'>{short}</div>"
+            f"<div class='lib-cv-emb'>大韓飼料<br>圖書</div></div>")
+
+def _shelf_item(it, key):
+    """책장 한 칸: 표지 + 제목 + 상태 + (대출가능일 때) 대출 버튼."""
+    b = it.get("book") or None
+    title = str((b or {}).get("title", "") or it.get("fallback", "") or "제목 없음")
+    author = str((b or {}).get("author", "") or "")
+    loc = str((b or {}).get("location", "") or "")
+    label = _book_avail_label(b)
+    cls = _ST_CLASS.get(label, "off")
+    rank = it.get("rank")
+    cnt = it.get("count")
+
+    rank_html = f"<div class='lib-rank'>{rank}</div>" if rank else ""
+    qty = _qty_text(b) if b else ""
+    meta2 = " · ".join([x for x in [loc and f"위치 {loc}", qty] if x])
+    cnt_html = f"<div class='lib-cnt'>누적 대출 {cnt}회</div>" if cnt else ""
+
+    st.markdown(
+        f"<div class='lib-bk'>{rank_html}{_cover_html(b, title)}"
+        f"<div class='lib-tt'>{_esc(title)}</div>"
+        f"<div class='lib-au'>{_esc(author) or '&nbsp;'}</div>"
+        f"<div class='lib-mt'>{_esc(meta2) or '&nbsp;'}</div>"
+        f"{cnt_html}"
+        f"<div class='lib-st {cls}'>● {label}</div></div>",
+        unsafe_allow_html=True)
+
+    if label == "대출가능":
+        if st.button("빌리기", key=f"go_{key}", use_container_width=True, type="primary"):
+            _goto_lend(b)
     else:
-        cover, title, meta, loc, qty = "<img>", title_fallback, "", "-", ""
-    rank_html = f"<span style='font-weight:800;color:#2563eb;margin-right:6px;'>{rank}위</span>" if rank else ""
-    count_html = f"<span class='lib-hint'> · 누적 대출 {count}회</span>" if count else ""
-    st.markdown(f"""<div class="book-card">{cover}
-        <div>{rank_html}<b>{title}</b>{count_html}<br>
-        <span class="lib-hint">{meta}</span><br>
-        <span class="lib-hint">{qty} · 위치 {loc}</span><br>
-        {_status_badge(_book_avail_label(book))}</div></div>""", unsafe_allow_html=True)
+        st.markdown("<div class='lib-btn-off'>대출 불가</div>", unsafe_allow_html=True)
+
+def _shelf(items, keyprefix, per_row=4):
+    """책장처럼 한 줄에 여러 권 + 아래에 나무 선반."""
+    if not items:
+        return
+    for start in range(0, len(items), per_row):
+        chunk = items[start:start + per_row]
+        cols = st.columns(per_row)
+        for j in range(per_row):
+            with cols[j]:
+                if j < len(chunk):
+                    _shelf_item(chunk[j], f"{keyprefix}_{start + j}")
+        st.markdown("<div class='lib-plank'></div>", unsafe_allow_html=True)
+
+def _sec_title(text, sub=""):
+    sub_html = f"<span class='lib-sec-sub'>{_esc(sub)}</span>" if sub else ""
+    st.markdown(f"<div class='lib-sec'><h2>{_esc(text)}</h2>{sub_html}</div>", unsafe_allow_html=True)
 
 # ==========================================================
 # 화면
@@ -690,19 +719,145 @@ def run_library():
         if st.button("🔄 다시 시도", key="lib_retry"):
             _reset_conn(); st.rerun()
 
-def _run_library():
-    st.markdown("""
-        <style>
-        .book-card { border:1px solid #e5e7eb; border-radius:12px; padding:14px; margin-bottom:10px;
-                     background:#fff; display:flex; gap:12px; }
-        .book-card img { width:52px; height:72px; object-fit:cover; border-radius:6px; background:#eef1f4; }
-        .lib-hint { color:#6b7280; font-size:.85em; }
-        </style>
-    """, unsafe_allow_html=True)
+LIB_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@400;700;800&display=swap');
 
-    st.header("📚 사내 도서관")
-    st.caption(f"책에 인쇄된 ISBN 바코드로 셀프 대출·반납하세요. 개인정보는 사번·이름만 사용합니다. "
-               f"　(버전 {LIB_VER})")
+/* ---------- 바탕: 크림색 종이 ---------- */
+.stApp, [data-testid="stAppViewContainer"] {
+  background:
+    radial-gradient(1200px 500px at 50% -8%, #FFFDF7 0%, rgba(255,253,247,0) 70%),
+    repeating-linear-gradient(0deg, rgba(169,120,46,.028) 0 2px, rgba(0,0,0,0) 2px 5px),
+    #FAF6EE;
+}
+[data-testid="stHeader"] { background: transparent; }
+
+/* ---------- 글꼴 ---------- */
+.lib-wrap, .lib-wrap * { color:#2B2620; }
+h1, h2, h3, .lib-serif { font-family:'Nanum Myeongjo', Batang, serif !important; letter-spacing:-.01em; }
+
+/* ---------- 간판 ---------- */
+.lib-head { text-align:center; padding:26px 10px 14px; }
+.lib-head .em { font-family:'Nanum Myeongjo',serif; font-size:.72rem; letter-spacing:.34em;
+  color:#A9782E; text-transform:uppercase; margin-bottom:8px; }
+.lib-head h1 { font-size:2.35rem; font-weight:800; margin:0; color:#1F4A3C;
+  font-family:'Nanum Myeongjo',serif; }
+.lib-head .rule { width:220px; height:0; margin:14px auto 12px; border-top:2px solid #1F4A3C;
+  border-bottom:1px solid #1F4A3C; padding-top:3px; }
+.lib-head .sub { font-size:.86rem; color:#6B6154; font-family:'Nanum Myeongjo',serif; }
+.lib-head .ver { font-size:.7rem; color:#A79A85; margin-top:6px; }
+
+/* ---------- 구역 제목 ---------- */
+.lib-sec { display:flex; align-items:baseline; gap:12px; margin:26px 0 14px;
+  border-bottom:1px solid #E0D6C3; padding-bottom:8px; }
+.lib-sec h2 { font-size:1.28rem !important; font-weight:800; margin:0 !important; color:#1F4A3C;
+  padding:0 !important; }
+.lib-sec .lib-sec-sub { font-size:.8rem; color:#8C806E; font-family:'Nanum Myeongjo',serif; }
+
+/* ---------- 책 한 칸 ---------- */
+.lib-bk { position:relative; padding:2px 2px 6px; }
+.lib-cv { position:relative; height:196px; border-radius:2px 7px 7px 2px; overflow:hidden;
+  background:#EFE7D7; border:1px solid #DCCFB6;
+  box-shadow:0 12px 16px -12px rgba(43,38,32,.65), 0 2px 3px rgba(43,38,32,.14);
+  transition:transform .16s ease, box-shadow .16s ease; }
+.lib-bk:hover .lib-cv { transform:translateY(-4px);
+  box-shadow:0 18px 22px -12px rgba(43,38,32,.6), 0 3px 5px rgba(43,38,32,.18); }
+.lib-cv img { width:100%; height:100%; object-fit:cover; display:block; }
+.lib-cv::before { content:""; position:absolute; left:0; top:0; bottom:0; width:10px; z-index:2;
+  background:linear-gradient(90deg, rgba(0,0,0,.30), rgba(0,0,0,.05) 62%, rgba(255,255,255,.20)); }
+.lib-cv-none { display:flex; flex-direction:column; justify-content:space-between; padding:16px 12px 12px 18px;
+  background:linear-gradient(135deg,#2E5B4A 0%, #1F4A3C 60%, #17392E 100%); }
+.lib-cv-txt { font-family:'Nanum Myeongjo',serif; font-weight:700; font-size:.92rem; line-height:1.45;
+  color:#F3EAD6; }
+.lib-cv-emb { font-family:'Nanum Myeongjo',serif; font-size:.62rem; line-height:1.35; text-align:right;
+  color:#C9A96A; letter-spacing:.12em; }
+
+.lib-tt { font-family:'Nanum Myeongjo',serif; font-weight:700; font-size:.95rem; line-height:1.35;
+  margin:12px 0 3px; color:#2B2620; min-height:2.6em;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.lib-au { font-size:.78rem; color:#7A6F5E; }
+.lib-mt { font-size:.72rem; color:#9A8E7A; margin-top:2px; }
+.lib-cnt { font-size:.72rem; color:#A9782E; font-weight:700; margin-top:2px; }
+.lib-st { font-size:.78rem; font-weight:700; margin:6px 0 8px; }
+.lib-st.ok   { color:#1F6B4F; }
+.lib-st.no   { color:#A33A2E; }
+.lib-st.wait { color:#B07A16; }
+.lib-st.off  { color:#948A79; }
+
+.lib-rank { position:absolute; top:-8px; left:-6px; z-index:3; width:32px; height:32px; border-radius:50%;
+  background:linear-gradient(145deg,#D7B25E,#A9782E); color:#FFF8E7; font-family:'Nanum Myeongjo',serif;
+  font-weight:800; font-size:.95rem; display:flex; align-items:center; justify-content:center;
+  box-shadow:0 3px 6px rgba(43,38,32,.35); border:1px solid #8C6320; }
+
+.lib-btn-off { text-align:center; font-size:.82rem; color:#A79A85; border:1px dashed #DCCFB6;
+  border-radius:6px; padding:7px 0; background:rgba(255,255,255,.4); }
+
+/* ---------- 나무 선반 ---------- */
+.lib-plank { height:15px; margin:4px 0 30px; border-radius:2px;
+  background:linear-gradient(180deg,#D2A868 0%, #B98B41 40%, #8E6526 78%, #6E4C1B 100%);
+  box-shadow:0 9px 14px -8px rgba(70,46,12,.55), inset 0 1px 0 rgba(255,255,255,.40),
+             inset 0 -2px 3px rgba(0,0,0,.22); }
+
+/* ---------- 버튼 ---------- */
+.stButton > button {
+  font-family:'Nanum Myeongjo',serif !important; font-weight:700 !important;
+  border-radius:6px !important; border:1px solid #C9BCA3 !important;
+  background:#FFFDF7 !important; color:#3A3327 !important;
+  box-shadow:0 1px 2px rgba(43,38,32,.08) !important; transition:all .15s ease !important;
+}
+.stButton > button:hover { border-color:#1F4A3C !important; color:#1F4A3C !important;
+  background:#F5EFE1 !important; }
+.stButton > button[kind="primary"], .stButton > button[data-testid="baseButton-primary"] {
+  background:linear-gradient(180deg,#2A5C49,#1F4A3C) !important; color:#FBF7EE !important;
+  border:1px solid #163A2E !important;
+  box-shadow:0 2px 4px rgba(22,58,46,.28) !important;
+}
+.stButton > button[kind="primary"]:hover { background:linear-gradient(180deg,#316B55,#245445) !important;
+  color:#FFF !important; }
+
+/* ---------- 입력칸 ---------- */
+.stTextInput input, .stTextArea textarea, .stNumberInput input, .stDateInput input {
+  background:#FFFDF7 !important; border:1px solid #D6C9B0 !important; border-radius:6px !important;
+  color:#2B2620 !important;
+}
+.stTextInput input:focus, .stTextArea textarea:focus { border-color:#1F4A3C !important;
+  box-shadow:0 0 0 2px rgba(31,74,60,.14) !important; }
+label, .stCheckbox, .stRadio { font-family:'Nanum Myeongjo',serif !important; }
+[data-testid="stWidgetLabel"] p { font-weight:700 !important; color:#4A4234 !important; }
+
+/* ---------- 알림상자 / 펼침 ---------- */
+[data-testid="stExpander"] { border:1px solid #E0D6C3 !important; border-radius:8px !important;
+  background:#FFFDF7 !important; }
+[data-testid="stNotification"] { border-radius:8px !important; font-family:'Nanum Myeongjo',serif; }
+hr { border-color:#E0D6C3 !important; }
+
+/* ---------- 대출 안내 쪽지 ---------- */
+.lib-note { border:1px solid #C9A96A; border-left:5px solid #A9782E; background:#FFF9EC;
+  border-radius:6px; padding:14px 16px; font-family:'Nanum Myeongjo',serif; }
+.lib-note b { color:#1F4A3C; }
+.lib-hint { color:#8C806E; font-size:.82em; font-family:'Nanum Myeongjo',serif; }
+
+/* ---------- 좁은 화면(휴대폰) ---------- */
+@media (max-width: 640px) {
+  .lib-head h1 { font-size:1.7rem; }
+  .lib-cv { height:132px; }
+  .lib-tt { font-size:.84rem; }
+}
+</style>
+"""
+
+def _run_library():
+    st.markdown(LIB_CSS, unsafe_allow_html=True)
+    st.markdown(
+        "<div class='lib-head'>"
+        "<div class='em'>Daehan Feed &middot; Library</div>"
+        "<h1>대한사료 사내도서관</h1>"
+        "<div class='rule'></div>"
+        "<div class='sub'>책에 인쇄된 ISBN 바코드로 직접 빌리고 반납하세요 &middot; "
+        "개인정보는 사번과 이름만 사용합니다</div>"
+        f"<div class='ver'>{LIB_VER}</div>"
+        "</div>", unsafe_allow_html=True)
+
     if not _SCAN_OK:
         st.info("ℹ️ 휴대폰 카메라 스캔을 쓰려면 requirements.txt에 zxing-cpp, pillow가 필요합니다. (직접 입력·USB 스캐너는 지금도 가능)")
 
@@ -737,16 +892,14 @@ def _run_library():
         home_books = [b for b in _records("books") if b.get("status") != "폐기"]
         home_loans = _records("loans")
 
-        st.subheader("🆕 최근 입고된 책")
-        recent = list(reversed(home_books))[:5]
+        _sec_title("새로 들어온 책", "신착 도서")
+        recent = list(reversed(home_books))[:8]
         if not recent:
             st.info("아직 등록된 도서가 없습니다. 👑 관리자 메뉴에서 도서를 등록해 주세요.")
         else:
-            for i, b in enumerate(recent):
-                _book_row(b, "recent", i)
+            _shelf([{"book": b} for b in recent], "recent")
 
-        st.markdown("---")
-        st.subheader("🔥 많이 대출된 책 TOP 5")
+        _sec_title("가장 많이 읽은 책", "누적 대출 TOP 5")
         counts = {}
         for l in home_loans:
             t = str(l.get("title", "")).strip()
@@ -756,9 +909,11 @@ def _run_library():
         if not top:
             st.info("아직 대출 기록이 없습니다.")
         else:
+            items = []
             for rank, (title, c) in enumerate(top, start=1):
                 book = next((b for b in home_books if str(b.get("title")).strip() == title), None)
-                _book_row(book, "top", rank, rank=rank, count=c, title_fallback=title)
+                items.append({"book": book, "rank": rank, "count": c, "fallback": title})
+            _shelf(items, "top")
 
     # ---------------- 대출 / 반납 ----------------
     if menu == MENU[1]:
@@ -784,8 +939,11 @@ def _run_library():
             ptitle = str(st.session_state.get("lib_prefill_title", "") or "")
             if prefill:
                 pc1, pc2 = st.columns([5, 1])
-                pc1.info(f"📕 **{ptitle}** 을(를) 빌립니다. (ISBN {prefill})\n\n"
-                         "아래에 **사번**을 넣고 [대출하기]를 누르세요. 바코드는 찍지 않아도 됩니다.")
+                pc1.markdown(
+                    f"<div class='lib-note'>📕 <b>{_esc(ptitle)}</b> 을(를) 빌립니다."
+                    f"<br><span class='lib-hint'>ISBN {_esc(prefill)}</span>"
+                    "<br>아래에 <b>사번</b>을 넣고 [대출하기]를 누르세요. 바코드는 찍지 않아도 됩니다.</div>",
+                    unsafe_allow_html=True)
                 if pc2.button("취소", key="co_clear", use_container_width=True):
                     st.session_state.pop("lib_prefill_isbn", None)
                     st.session_state.pop("lib_prefill_title", None)
@@ -875,22 +1033,33 @@ def _run_library():
             books = [b for b in books if any(
                 ql in str(b.get(k, "")).lower() for k in ["title", "author", "isbn", "category", "publisher"])]
         books = sorted(books, key=lambda b: str(b.get("title", "")))
-        st.caption(f"총 {len(books)}종")
-        for si, b in enumerate(books[:100]):
-            _book_row(b, "search", si)
-            if _to_int(b.get("available_qty")) <= 0 and b.get("status") != "폐기":
-                with st.expander(f"🔖 '{b.get('title')}' 예약하기"):
-                    with st.form(f"res_{_norm_isbn(b.get('isbn'))}", clear_on_submit=True):
-                        rc1, rc2 = st.columns(2)
-                        rs = rc1.text_input("사번", key=f"rs_{_norm_isbn(b.get('isbn'))}")
-                        rn = rc2.text_input("이름", key=f"rn_{_norm_isbn(b.get('isbn'))}")
-                        if st.form_submit_button("예약 신청"):
-                            ok, msg = _reserve(b.get("isbn"), rs, rn)
-                            (st.success if ok else st.error)(msg)
+        _sec_title("서가 둘러보기", f"총 {len(books)}종")
+        shown = books[:60]
+        if not shown:
+            st.info("찾으시는 책이 없습니다. 🙋 메뉴에서 '희망도서'로 신청해 보세요.")
+        else:
+            _shelf([{"book": b} for b in shown], "search")
+        if len(books) > len(shown):
+            st.markdown(f"<p class='lib-hint'>{len(books) - len(shown)}종이 더 있습니다. "
+                        f"검색어를 넣어 좁혀 주세요.</p>", unsafe_allow_html=True)
+
+        out_books = [b for b in books if _to_int(b.get("available_qty")) <= 0]
+        if out_books:
+            with st.expander("🔖 대출 중인 책 예약하기"):
+                _opts = {f"{b.get('title')} ({b.get('author') or '저자 미상'})": b for b in out_books}
+                _pick = st.selectbox("예약할 책", list(_opts.keys()), key="res_pick")
+                with st.form("res_form", clear_on_submit=True):
+                    rc1, rc2 = st.columns(2)
+                    rs = rc1.text_input("사번", key="res_saban")
+                    rn = rc2.text_input("이름 (처음 이용 시 1회)", key="res_name")
+                    if st.form_submit_button("예약 신청", use_container_width=True, type="primary"):
+                        _b = _opts.get(_pick)
+                        ok, msg = _reserve((_b or {}).get("isbn"), rs, rn)
+                        (st.success if ok else st.error)(msg)
 
     # ---------------- 내 대출 / 희망도서 ----------------
     if menu == MENU[3]:
-        st.subheader("📖 내 대출 현황")
+        _sec_title("내 대출 현황", "사번으로 조회")
         msaban = st.text_input("사번으로 조회", key="my_saban", placeholder="사번 입력")
         if msaban.strip():
             mine = [l for l in _records("loans")
@@ -913,8 +1082,7 @@ def _run_library():
                 else:
                     col2.caption("연장불가")
 
-        st.markdown("---")
-        st.subheader("🙋 희망도서 신청")
+        _sec_title("희망도서 신청", "읽고 싶은 책을 알려주세요")
         with st.form("wish_form", clear_on_submit=True):
             wc1, wc2 = st.columns(2)
             ws_ = wc1.text_input("사번")
