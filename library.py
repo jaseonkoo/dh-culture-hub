@@ -21,7 +21,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v9 (2026-07-30 · 책 소개 직접 입력)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
+LIB_VER    = "v10 (2026-07-30 · 책 소개는 구글 시트에서만)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -783,19 +783,6 @@ def _book_summary_text(book):
     """책 소개 글. 시트에 없으면 빈 문자열."""
     return str((book or {}).get("summary", "") or "").strip()
 
-def _save_summary(isbn, text):
-    """책 소개를 books 시트에 저장한다. (관리자가 직접 쓴 글)"""
-    isbn = _norm_isbn(isbn)
-    if not _ensure_col("books", "summary"):
-        return False, "시트에 'summary' 열을 만들지 못했습니다. 구글 시트 공유 권한을 확인해 주세요."
-    ws = _ws("books"); c = _col("books", "summary")
-    for i, r in enumerate(_records("books")):
-        if _norm_isbn(r.get("isbn")) == isbn:
-            _retry(ws.update_cell, i + 2, c, str(text or "")[:1500])
-            _refresh()
-            return True, "책 소개를 저장했습니다."
-    return False, "해당 ISBN의 책을 찾지 못했습니다."
-
 def _detail_page(isbn):
     """책 한 권의 자세한 정보 화면."""
     b = _find_book(isbn)
@@ -851,18 +838,6 @@ def _detail_page(isbn):
     else:
         st.markdown("<div class='lib-sm lib-sm-none'>아직 등록된 책 소개가 없습니다.</div>",
                     unsafe_allow_html=True)
-
-    with st.expander("✏️ 책 소개 직접 쓰기 / 고치기"):
-        newtxt = st.text_area("책 소개", value=summ, height=180, key=f"dt_txt_{_norm_isbn(isbn)}")
-        pw = st.text_input("관리자 비밀번호", type="password", key=f"dt_pw_{_norm_isbn(isbn)}")
-        if st.button("저장", key=f"dt_save_{_norm_isbn(isbn)}"):
-            if pw != ADMIN_PW and not st.session_state.get("lib_admin"):
-                st.error("관리자 비밀번호가 다릅니다.")
-            else:
-                ok, msg = _save_summary(b.get("isbn"), newtxt)
-                (st.success if ok else st.error)(msg)
-                if ok:
-                    st.rerun()
 
     cnt = sum(1 for l in _records("loans")
               if _norm_isbn(l.get("isbn")) == _norm_isbn(isbn))
@@ -1407,8 +1382,7 @@ def _run_library():
                     if info:
                         for k in ["title", "author", "publisher", "year", "category", "cover"]:
                             st.session_state[f"reg_{k}"] = info.get(k, "")
-                        st.success("제목·저자·표지를 불러왔습니다. 확인 후 등록하세요. "
-                                   "책 소개는 아래 칸에 직접 적거나, 등록 후 구글 시트에서 넣어 주세요.")
+                        st.success("제목·저자·표지를 불러왔습니다. 확인 후 등록하세요.")
                     else:
                         st.warning(err or "도서 정보를 찾지 못했습니다. 직접 입력해 주세요.")
                 with st.form("book_form", clear_on_submit=True):
@@ -1422,18 +1396,16 @@ def _run_library():
                     bc5, bc6 = st.columns(2)
                     location = bc5.text_input("위치 (예: A-3)")
                     qty = bc6.number_input("수량(권수)", min_value=1, value=1, step=1)
-                    summary = st.text_area("책 소개 (비워 두어도 됩니다 · 나중에 구글 시트에서 넣을 수 있어요)",
-                                           value=st.session_state.get("reg_summary", ""), height=120)
+                    st.caption("책 소개는 등록 후 구글 시트 books 탭의 summary 열에 적어 주세요.")
                     if st.form_submit_button("등록", use_container_width=True):
                       with st.spinner("등록 중입니다..."):
                         ok, msg = _add_book({
                             "isbn": isbn_in, "title": title, "author": author, "publisher": publisher,
                             "year": year, "category": category, "location": location,
-                            "qty": qty, "cover": st.session_state.get("reg_cover", ""),
-                            "summary": summary})
+                            "qty": qty, "cover": st.session_state.get("reg_cover", "")})
                       if ok:
                           for k in ["reg_title", "reg_author", "reg_publisher", "reg_year",
-                                    "reg_category", "reg_cover", "reg_summary"]:
+                                    "reg_category", "reg_cover"]:
                               st.session_state[k] = ""
                           st.success(msg)
                       else:
@@ -1445,8 +1417,14 @@ def _run_library():
                           and str(b.get("status", "")).strip() != "폐기"]
                 st.markdown(f"소개가 비어 있는 책 : **{len(_nosum)}종**")
                 st.caption("구글 시트 `대한사료_도서관_DB` → **books** 탭 → **summary** 열에 "
-                           "소개 글을 적고 저장하시면, 1분 안에 도서관 화면에 반영됩니다. "
-                           "책 [자세히] 화면의 **✏️ 책 소개 직접 쓰기 / 고치기** 로 넣어도 똑같습니다.")
+                           "소개 글을 적고 저장하시면, 1분 안에 도서관 화면에 반영됩니다.")
+                if "summary" not in _header("books"):
+                    if st.button("시트에 summary 열 만들기", key="mk_sum_col"):
+                        if _ensure_col("books", "summary"):
+                            st.success("books 탭 맨 오른쪽에 summary 열을 만들었습니다.")
+                            st.rerun()
+                        else:
+                            st.error("열을 만들지 못했습니다. 구글 시트 공유 권한을 확인해 주세요.")
                 if _nosum:
                     st.dataframe(pd.DataFrame([{"ISBN": b.get("isbn"), "제목": b.get("title"),
                                                 "저자": _clean_author(b.get("author"))}
