@@ -228,30 +228,32 @@ if st.session_state.page == "home":
 # --- [각 프로그램 페이지 연결 및 통계 체크] ---
 elif st.session_state.page == "mentoring":
     log_page_visit("mentoring")
-    if st.button("⬅️ 메인으로"): go_to("home")
+    if st.button("⬅️ 플랫폼 메인으로 나가기"): go_to("home")
     mentoring.run_mentoring()
 
 elif st.session_state.page == "leader":
     log_page_visit("leader")
-    if st.button("⬅️ 메인으로"): go_to("home")
+    if st.button("⬅️ 플랫폼 메인으로 나가기"): go_to("home")
     leader.run_leader_talk()
 
 elif st.session_state.page == "class":
     log_page_visit("class")
-    if st.button("⬅️ 메인으로"): go_to("home")
+    if st.button("⬅️ 플랫폼 메인으로 나가기"): go_to("home")
     oneday.run_class()
 
 elif st.session_state.page == "typing":
     log_page_visit("typing")
-    if st.button("⬅️ 메인으로"): go_to("home")
+    if st.button("⬅️ 플랫폼 메인으로 나가기"): go_to("home")
     typing_game.run_typing_game()
 
 elif st.session_state.page == "tycoon":
     log_page_visit("tycoon")
-    if st.button("⬅️ 메인으로"): go_to("home")
+    if st.button("⬅️ 플랫폼 메인으로 나가기"): go_to("home")
     tycoon_game.run_tycoon_game()
 
 elif st.session_state.page == "library":
     log_page_visit("library")
-    if st.button("⬅️ 메인으로"): go_to("home")
+    # ✅ [수정] 도서관 안에도 '돌아가기' 버튼이 있어서 헷갈렸습니다.
+    #          이 버튼은 '플랫폼 메인으로 나가는' 버튼이라고 분명히 적어 둡니다.
+    if st.button("⬅️ 플랫폼 메인으로 나가기", key="btn_out_library"): go_to("home")
     library.run_library()
