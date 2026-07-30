@@ -23,14 +23,12 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v11 (2026-07-30 · 이메일 알림)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
+LIB_VER    = "v12 (2026-07-30 · 회사 이메일 필수)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
-# 도서관 입장 비밀번호 (직원들이 쓰는 것)
-ENTER_PW   = "dhfeedhr"
-# app.py 에서 이미 비밀번호를 묻고 있다면 아래를 False 로 바꾸세요. (두 번 묻지 않게)
-LIB_GATE   = True
+# 대출할 때 받는 이메일은 이 도메인만 허용합니다. (회사 메일만)
+MAIL_DOMAIN = "daehanfeed.co.kr"
 
 # 희망도서가 접수되면 이 주소로 알림 메일이 갑니다.
 WISH_TO    = "jsgu@daehanfeed.co.kr"
@@ -399,13 +397,35 @@ def _member_email(saban):
     return ""
 
 def _valid_mail(addr):
+    """일반적인 이메일 모양인지만 본다. (시험 발송 등 내부용)"""
     a = str(addr or "").strip()
     return ("@" in a) and ("." in a.split("@")[-1]) and (" " not in a) and len(a) >= 6
 
+def _fix_mail(addr):
+    """'@' 없이 아이디만 적었으면 회사 도메인을 붙여 준다.
+       예) hong  →  hong@daehanfeed.co.kr
+       대문자로 적어도 소문자로 고쳐 준다."""
+    a = str(addr or "").strip().replace(" ", "").lower()
+    if not a:
+        return ""
+    if "@" not in a:
+        return a + "@" + MAIL_DOMAIN
+    return a
+
+def _company_mail(addr):
+    """회사 이메일(@daehanfeed.co.kr) 인지 확인."""
+    a = _fix_mail(addr)
+    if not a or a.count("@") != 1:
+        return False
+    user, dom = a.split("@")
+    return bool(user) and dom == MAIL_DOMAIN
+
+MAIL_RULE = "회사 이메일(@%s)만 사용할 수 있습니다." % MAIL_DOMAIN
+
 def _save_member_email(saban, email):
     """회원의 이메일을 members 탭에 적어 둔다. (바뀌었을 때만 씀)"""
-    saban = str(saban).strip(); email = str(email or "").strip()
-    if not saban or not _valid_mail(email):
+    saban = str(saban).strip(); email = _fix_mail(email)
+    if not saban or not _company_mail(email):
         return False
     if not _ensure_col("members", "email"):
         return False
@@ -607,6 +627,12 @@ def _checkout(isbn, saban, name, email=""):
     isbn = _norm_isbn(isbn)
     if not isbn:
         return False, "책의 ISBN 바코드를 스캔하세요."
+    # 이메일은 반드시 있어야 하고, 회사 메일이어야 합니다.
+    email = _fix_mail(email)
+    if not email:
+        return False, "이메일을 입력해 주세요. 반납 예정일과 연체 안내를 메일로 보내드립니다."
+    if not _company_mail(email):
+        return False, "이메일 주소를 확인해 주세요. %s (예: hong@%s)" % (MAIL_RULE, MAIL_DOMAIN)
     member, err = _ensure_member(saban, name, email)
     if err:
         return False, err
@@ -741,6 +767,9 @@ def _renew(loan_id, saban):
 
 # ---------------- 예약 / 희망도서 ----------------
 def _reserve(isbn, saban, name, email=""):
+    email = _fix_mail(email)
+    if email and not _company_mail(email):
+        return False, "이메일 주소를 확인해 주세요. %s" % MAIL_RULE
     member, err = _ensure_member(saban, name, email)
     if err:
         return False, err
@@ -761,6 +790,9 @@ def _reserve(isbn, saban, name, email=""):
     return True, "예약 완료. 반납되면 안내됩니다."
 
 def _add_wish(saban, name, title, author, reason, email=""):
+    email = _fix_mail(email)
+    if email and not _company_mail(email):
+        return False, "이메일 주소를 확인해 주세요. %s" % MAIL_RULE
     member, err = _ensure_member(saban, name, email)
     if err:
         return False, err
@@ -1120,7 +1152,8 @@ def _detail_page(isbn):
                     rc1, rc2 = st.columns(2)
                     rs = rc1.text_input("사번")
                     rn = rc2.text_input("이름 (처음 이용 시 1회)")
-                    re_ = st.text_input("이메일 (책이 들어오면 알려드립니다)")
+                    re_ = st.text_input("회사 이메일 (책이 들어오면 알려드립니다)",
+                                        placeholder="hong@" + MAIL_DOMAIN)
                     if st.form_submit_button("예약 신청", use_container_width=True, type="primary"):
                         ok, msg = _reserve(b.get("isbn"), rs, rn, re_)
                         (st.success if ok else st.error)(msg)
@@ -1145,40 +1178,11 @@ def _sec_title(text, sub=""):
 # ==========================================================
 # 화면
 # ==========================================================
-def _gate():
-    """도서관 입장 비밀번호 화면.
-       st.form 안에 넣었기 때문에 비밀번호를 적고 '엔터'만 쳐도 바로 입장합니다."""
-    if not LIB_GATE or st.session_state.get("lib_entered"):
-        return True
-    st.markdown(LIB_CSS, unsafe_allow_html=True)
-    st.markdown(
-        "<div class='lib-head'>"
-        "<div class='em'>Daehan Feed &middot; Library</div>"
-        "<h1>대한사료 사내도서관</h1>"
-        "<div class='rule'></div>"
-        "<div class='sub'>사내 임직원 전용입니다 &middot; 비밀번호를 입력해 주세요</div>"
-        "</div>", unsafe_allow_html=True)
-    _c1, _c2, _c3 = st.columns([1, 2, 1])
-    with _c2:
-        with st.form("lib_gate_form", clear_on_submit=True):
-            _pw = st.text_input("비밀번호", type="password",
-                                placeholder="비밀번호를 입력하고 엔터를 누르세요")
-            _go = st.form_submit_button("입장하기", use_container_width=True, type="primary")
-        if _go:
-            if str(_pw).strip() == ENTER_PW:
-                st.session_state["lib_entered"] = True
-                st.rerun()
-            else:
-                st.error("비밀번호가 올바르지 않습니다. 다시 입력해 주세요.")
-        st.markdown("<p class='lib-hint' style='text-align:center'>"
-                    "비밀번호를 모르시면 인사팀에 문의해 주세요.</p>", unsafe_allow_html=True)
-    return False
-
 def run_library():
     """바깥 껍데기: 구글 시트 오류가 나도 앱이 죽지 않고 안내 메시지를 보여준다."""
     try:
-        if not _gate():
-            return
+        # 비밀번호는 플랫폼(app.py) 첫 화면에서 이미 한 번 확인합니다.
+        # 도서관에서 또 묻지 않습니다.
         _run_library()
     except gspread.exceptions.SpreadsheetNotFound:
         st.error(f"구글 시트 '{LIB_DB}' 를 열 수 없습니다. 시트 이름과 서비스 계정 공유(편집자) 설정을 확인해 주세요.")
@@ -1493,15 +1497,23 @@ def _run_library():
                     c1.caption("🆕 처음 보는 사번이에요. 오른쪽에 이름을 한 번만 적어 주세요. "
                                "다음부터는 사번만 넣으면 이름이 자동으로 나옵니다.")
 
-            # 반납 예정일·연체 안내를 받을 개인 이메일 (한 번 넣으면 다음부터 자동으로 채워집니다)
+            # 회사 이메일 (필수). 한 번 넣으면 다음부터 자동으로 채워집니다.
             _saved_mail = _member_email(saban)
-            email = st.text_input("이메일 (반납 예정일·연체 안내를 받습니다)",
-                                  value=_saved_mail, placeholder="hong@daehanfeed.co.kr")
-            if _saved_mail and str(email).strip() == _saved_mail:
-                st.caption("✉️ 저장된 이메일로 안내가 갑니다. 바꾸시려면 위 칸을 고쳐 주세요.")
-            elif not str(email).strip():
-                st.caption("이메일은 도서관 안내(반납 예정일·연체·예약 도착)에만 사용하며, "
-                           "비워 두셔도 대출은 됩니다.")
+            email = st.text_input("회사 이메일 *필수*  (반납 예정일·연체 안내를 받습니다)",
+                                  value=_saved_mail,
+                                  placeholder="hong@" + MAIL_DOMAIN)
+            _mail_ok = _company_mail(email)
+            _typed = str(email).strip()
+            if not _typed:
+                st.caption("✉️ 회사 이메일을 반드시 적어 주세요. "
+                           "`@` 앞의 아이디만 적으셔도 됩니다. (자동으로 @%s 가 붙습니다)" % MAIL_DOMAIN)
+            elif not _mail_ok:
+                st.warning("이메일 주소를 확인해 주세요. %s  (예: hong@%s)" % (MAIL_RULE, MAIL_DOMAIN))
+            elif _saved_mail and _fix_mail(email) == _saved_mail:
+                st.caption("✉️ 저장된 이메일 **%s** 로 안내가 갑니다. 바꾸시려면 위 칸을 고쳐 주세요."
+                           % _fix_mail(email))
+            else:
+                st.caption("✉️ **%s** 로 안내가 갑니다." % _fix_mail(email))
             if not _mail_ready():
                 st.caption("⚠️ 아직 메일 보내는 계정이 설정되지 않아 안내 메일은 발송되지 않습니다. "
                            "(관리자 메뉴 → 📧 이메일 알림 설정)")
@@ -1599,7 +1611,8 @@ def _run_library():
                     rc1, rc2 = st.columns(2)
                     rs = rc1.text_input("사번", key="res_saban")
                     rn = rc2.text_input("이름 (처음 이용 시 1회)", key="res_name")
-                    re_ = st.text_input("이메일 (책이 들어오면 알려드립니다)", key="res_mail")
+                    re_ = st.text_input("회사 이메일 (책이 들어오면 알려드립니다)",
+                                        key="res_mail", placeholder="hong@" + MAIL_DOMAIN)
                     if st.form_submit_button("예약 신청", use_container_width=True, type="primary"):
                         _b = _opts.get(_pick)
                         ok, msg = _reserve((_b or {}).get("isbn"), rs, rn, re_)
@@ -1635,7 +1648,8 @@ def _run_library():
             wc1, wc2 = st.columns(2)
             ws_ = wc1.text_input("사번")
             wn_ = wc2.text_input("이름")
-            we_ = st.text_input("이메일 (구입 여부를 알려드립니다)")
+            we_ = st.text_input("회사 이메일 (구입 여부를 알려드립니다)",
+                                placeholder="hong@" + MAIL_DOMAIN)
             wt_ = st.text_input("도서 제목")
             wa_ = st.text_input("저자 (선택)")
             wr_ = st.text_area("신청 사유 (선택)", height=70)
@@ -1813,6 +1827,8 @@ def _run_library():
                            "· 예약한 책이 들어오면 : 도착 안내\n"
                            "· 희망도서가 접수되면 : 담당자(%s)에게 알림"
                            % (DUE_SOON, WISH_TO))
+                st.caption("대출할 때 **회사 이메일(@%s)** 은 반드시 입력해야 합니다. "
+                           "`@` 앞의 아이디만 적어도 자동으로 도메인이 붙습니다." % MAIL_DOMAIN)
 
                 if _cfg:
                     st.markdown("---")
@@ -1877,7 +1893,8 @@ def _run_library():
                         mem, err = _ensure_member(ms, mn, me)
                         (st.error(err) if err else st.success(f"등록/확인 완료: {mem['name']}"))
                 st.caption("이메일은 반납 예정일·연체·예약 도착 안내에만 사용합니다. "
-                           "직원이 대출할 때 직접 입력해도 자동으로 저장됩니다.")
+                           "직원이 대출할 때 직접 입력해도 자동으로 저장됩니다. "
+                           "회사 이메일(@%s)만 저장됩니다." % MAIL_DOMAIN)
 
             with st.expander(f"⏰ 연체 목록 ({len(overdue)})"):
                 if not overdue:
