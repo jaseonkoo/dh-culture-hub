@@ -10,6 +10,8 @@
 # ==========================================================
 from utils import *          # st, datetime, uuid, pd, gspread, time, ServiceAccountCredentials 등
 import urllib.request, json
+import smtplib
+from email.message import EmailMessage
 
 # 휴대폰 카메라 바코드 해석용 (없어도 나머지 기능은 동작)
 try:
@@ -21,9 +23,21 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v10 (2026-07-30 · 책 소개는 구글 시트에서만)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
+LIB_VER    = "v11 (2026-07-30 · 이메일 알림)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
+
+# 도서관 입장 비밀번호 (직원들이 쓰는 것)
+ENTER_PW   = "dhfeedhr"
+# app.py 에서 이미 비밀번호를 묻고 있다면 아래를 False 로 바꾸세요. (두 번 묻지 않게)
+LIB_GATE   = True
+
+# 희망도서가 접수되면 이 주소로 알림 메일이 갑니다.
+WISH_TO    = "jsgu@daehanfeed.co.kr"
+# 반납 며칠 전에 미리 안내 메일을 보낼지
+DUE_SOON   = 2
+# 한 번에 보낼 수 있는 메일 최대 통수 (앱이 느려지지 않도록 제한)
+MAIL_MAX   = 20
 
 LOAN_DAYS  = 14
 RENEW_DAYS = 7
@@ -37,11 +51,13 @@ SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/au
 HEADERS = {
     "books":        ["isbn", "title", "author", "publisher", "year", "category", "location",
                      "total_qty", "available_qty", "status", "cover", "summary"],
-    "members":      ["saban", "name", "joined"],
+    "members":      ["saban", "name", "joined", "email"],
     "loans":        ["loan_id", "isbn", "title", "saban", "name",
                      "loan_date", "due_date", "return_date", "renew_count", "status"],
     "reservations": ["res_id", "isbn", "title", "saban", "name", "res_date", "status"],
     "wishlist":     ["wish_id", "title", "author", "isbn", "saban", "name", "reason", "date", "status"],
+    # 같은 안내 메일을 두 번 보내지 않도록 기록해 두는 탭 (자동 생성됩니다)
+    "maillog":      ["date", "kind", "key", "to", "result"],
 }
 
 # ==========================================================
@@ -190,6 +206,176 @@ def _to_int(v, default=0):
         return default
 
 # ==========================================================
+# 이메일 알림
+#  - 보내는 계정 정보는 앱 설정(Secrets)에만 넣습니다. 코드에 적지 마세요.
+#      [mail]
+#      sender = "dhfeed.hr.ai@gmail.com"
+#      app_password = "구글 앱 비밀번호 16자리"
+#  - 설정이 없으면 메일만 조용히 건너뛰고, 도서관 기능은 그대로 동작합니다.
+# ==========================================================
+def _mail_cfg():
+    """앱 설정(Secrets)에서 메일 보내는 계정을 읽는다. 없으면 None."""
+    for sec in ("mail", "email", "smtp", "gmail"):
+        try:
+            d = st.secrets[sec]
+        except Exception:
+            continue
+        try:
+            sender = ""
+            for k in ("sender", "user", "username", "address", "from"):
+                v = str(d.get(k, "") or "").strip()
+                if v:
+                    sender = v; break
+            pw = ""
+            for k in ("app_password", "password", "pw", "app_pw"):
+                v = str(d.get(k, "") or "").strip()
+                if v:
+                    pw = v; break
+            host = str(d.get("host", "") or "smtp.gmail.com").strip()
+            port = _to_int(d.get("port", 465), 465) or 465
+        except Exception:
+            continue
+        if sender and pw:
+            return {"sender": sender, "pw": pw, "host": host, "port": port}
+    return None
+
+def _mail_ready():
+    return _mail_cfg() is not None
+
+def _send_mail(to, subject, body):
+    """메일 한 통 보내기. 반환: (성공여부, 메시지)"""
+    cfg = _mail_cfg()
+    if not cfg:
+        return False, "메일 계정이 설정되어 있지 않습니다. (앱 설정 → Secrets → [mail])"
+    to = str(to or "").strip()
+    if not _valid_mail(to):
+        return False, "이메일 주소가 올바르지 않습니다."
+    msg = EmailMessage()
+    msg["Subject"] = str(subject)
+    msg["From"] = "대한사료 사내도서관 <%s>" % cfg["sender"]
+    msg["To"] = to
+    msg.set_content(str(body))
+    try:
+        if int(cfg["port"]) == 587:
+            with smtplib.SMTP(cfg["host"], int(cfg["port"]), timeout=20) as sv:
+                sv.starttls(); sv.login(cfg["sender"], cfg["pw"]); sv.send_message(msg)
+        else:
+            with smtplib.SMTP_SSL(cfg["host"], int(cfg["port"]), timeout=20) as sv:
+                sv.login(cfg["sender"], cfg["pw"]); sv.send_message(msg)
+        return True, "보냈습니다."
+    except smtplib.SMTPAuthenticationError:
+        return False, "메일 계정 로그인에 실패했습니다. 구글 '앱 비밀번호'를 다시 확인해 주세요."
+    except Exception as e:
+        return False, "메일 발송 실패: %s" % str(e)[:120]
+
+_MAIL_TAIL = ("\n\n───────────────\n대한사료 사내도서관\n"
+              "이 메일은 자동으로 발송되었습니다. 문의는 인사팀으로 부탁드립니다.")
+
+def _mail_quiet(to, subject, body):
+    """실패해도 대출·반납 자체는 성공 처리한다. (메일은 부가 기능)"""
+    if not _valid_mail(to) or not _mail_ready():
+        return False
+    ok, _ = _send_mail(to, subject, body + _MAIL_TAIL)
+    return ok
+
+# ---------------- 같은 안내를 두 번 보내지 않게 기록 ----------------
+def _mailed_keys():
+    """이미 '성공적으로' 보낸 안내의 (kind, key) 모음.
+       실패한 것은 넣지 않으므로, 다음에 다시 시도합니다."""
+    out = set()
+    for r in _records("maillog"):
+        if str(r.get("result", "")).strip() != "성공":
+            continue
+        out.add((str(r.get("kind", "")).strip(), str(r.get("key", "")).strip()))
+    return out
+
+def _log_mail(kind, key, to, result):
+    try:
+        vals = {"date": str(_today()), "kind": kind, "key": key, "to": to, "result": result}
+        hdr = _header("maillog")
+        _retry(_ws("maillog").append_row, [vals.get(h, "") for h in hdr])
+        _refresh()
+    except Exception:
+        pass
+
+def _due_date(loan):
+    try:
+        return datetime.datetime.strptime(str(loan.get("due_date", "")).strip(), "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+def _run_reminders():
+    """반납 예정 안내(D-2)와 연체 안내 메일을 보낸다.
+       같은 안내는 두 번 보내지 않는다. 반환: (보낸 수, 실패 수, 안내문)"""
+    if not _mail_ready():
+        return 0, 0, "메일 계정이 설정되어 있지 않습니다."
+    done = _mailed_keys()
+    sent = fail = miss = 0
+    today = _today()
+    for l in _records("loans"):
+        if sent + fail >= MAIL_MAX:
+            break
+        if str(l.get("status", "")).strip() != "대출중":
+            continue
+        due = _due_date(l)
+        if not due:
+            continue
+        lid = str(l.get("loan_id", "")).strip()
+        saban = str(l.get("saban", "")).strip()
+        to = _member_email(saban)
+        if not _valid_mail(to):
+            continue
+        left = (due - today).days
+        title = str(l.get("title", ""))
+        name = str(l.get("name", ""))
+        kind = key = subject = body = None
+        if 0 < left <= DUE_SOON:
+            kind, key = "due", lid
+            subject = "[사내도서관] 반납 예정 안내 · %s" % title
+            body = ("%s님 안녕하세요.\n\n"
+                    "빌려 가신 책의 반납일이 다가왔습니다.\n\n"
+                    "  · 도서 : %s\n"
+                    "  · 반납 예정일 : %s (%d일 남았습니다)\n\n"
+                    "더 읽고 싶으시면 도서관 화면의 [🙋 내 대출·희망도서] 에서 "
+                    "사번을 넣고 [연장] 을 누르시면 %d일 연장됩니다. "
+                    "(예약 대기자가 있으면 연장되지 않습니다.)") % (name, title, str(due), left, RENEW_DAYS)
+        elif left < 0:
+            over = -left
+            kind, key = "over", "%s_%d" % (lid, over // 7)
+            subject = "[사내도서관] 반납이 늦어지고 있습니다 · %s" % title
+            body = ("%s님 안녕하세요.\n\n"
+                    "빌려 가신 책의 반납일이 지났습니다.\n\n"
+                    "  · 도서 : %s\n"
+                    "  · 반납 예정일 : %s\n"
+                    "  · 연체 : %d일\n\n"
+                    "다른 분이 기다리고 있을 수 있으니 반납을 부탁드립니다. "
+                    "이미 반납하셨다면 이 메일은 무시해 주세요.") % (name, title, str(due), over)
+        if not kind:
+            continue
+        if (kind, key) in done:
+            continue
+        ok = _mail_quiet(to, subject, body)
+        _log_mail(kind, key, to, "성공" if ok else "실패")
+        done.add((kind, key))
+        if ok:
+            sent += 1
+            miss = 0
+        else:
+            fail += 1
+            miss += 1
+            # 계속 실패하면(메일 계정 문제 등) 화면이 멈추지 않도록 여기서 멈춘다.
+            if miss >= 3:
+                break
+    msg = "안내 메일 %d통을 보냈습니다." % sent
+    if fail:
+        msg += " (%d통 실패)" % fail
+    if sent == 0 and fail == 0:
+        msg = "지금 보낼 안내 메일이 없습니다."
+    if miss >= 3:
+        msg += " 계속 실패해서 중간에 멈췄습니다. 메일 계정 설정을 확인해 주세요."
+    return sent, fail, msg
+
+# ==========================================================
 # 회원 (사번 + 이름)
 # ==========================================================
 def _member_name(saban):
@@ -202,18 +388,57 @@ def _member_name(saban):
             return str(m.get("name", "")).strip()
     return ""
 
-def _ensure_member(saban, name):
-    saban = str(saban).strip(); name = str(name).strip()
+def _member_email(saban):
+    """저장해 둔 개인 이메일. 없으면 빈 문자열."""
+    saban = str(saban).strip()
+    if not saban:
+        return ""
+    for m in _records("members"):
+        if str(m.get("saban")).strip() == saban:
+            return str(m.get("email", "") or "").strip()
+    return ""
+
+def _valid_mail(addr):
+    a = str(addr or "").strip()
+    return ("@" in a) and ("." in a.split("@")[-1]) and (" " not in a) and len(a) >= 6
+
+def _save_member_email(saban, email):
+    """회원의 이메일을 members 탭에 적어 둔다. (바뀌었을 때만 씀)"""
+    saban = str(saban).strip(); email = str(email or "").strip()
+    if not saban or not _valid_mail(email):
+        return False
+    if not _ensure_col("members", "email"):
+        return False
+    ws = _ws("members"); c = _col("members", "email")
+    for i, m in enumerate(_records("members")):
+        if str(m.get("saban")).strip() == saban:
+            if str(m.get("email", "") or "").strip() == email:
+                return True
+            _retry(ws.update_cell, i + 2, c, email)
+            _refresh()
+            return True
+    return False
+
+def _ensure_member(saban, name, email=""):
+    saban = str(saban).strip(); name = str(name).strip(); email = str(email or "").strip()
     if not saban:
         return None, "사번을 입력하세요."
     for m in _records("members"):
         if str(m.get("saban")).strip() == saban:
-            return {"saban": saban, "name": str(m.get("name", "")).strip()}, None
+            kept = str(m.get("email", "") or "").strip()
+            if email and email != kept:
+                _save_member_email(saban, email)
+                kept = email
+            return {"saban": saban, "name": str(m.get("name", "")).strip(), "email": kept}, None
     if not name:
         return None, "처음 이용하시는 사번입니다. 이름도 함께 입력해 주세요."
-    _retry(_ws("members").append_row, [saban, name, str(_today())])
+    if email:
+        _ensure_col("members", "email")
+    vals = {"saban": saban, "name": name, "joined": str(_today()), "email": email}
+    hdr = _header("members")
+    _retry(_ws("members").append_row, [vals.get(h, "") for h in hdr])
     _refresh()
-    return {"saban": saban, "name": name}, None
+    return {"saban": saban, "name": name, "email": email}, None
 
 # ==========================================================
 # 도서 (ISBN 키 + 수량)
@@ -378,11 +603,11 @@ def _first_reservation(isbn):
     return res[0] if res else None
 
 # ---------------- 대출 ----------------
-def _checkout(isbn, saban, name):
+def _checkout(isbn, saban, name, email=""):
     isbn = _norm_isbn(isbn)
     if not isbn:
         return False, "책의 ISBN 바코드를 스캔하세요."
-    member, err = _ensure_member(saban, name)
+    member, err = _ensure_member(saban, name, email)
     if err:
         return False, err
     book = _find_book(isbn)
@@ -408,7 +633,20 @@ def _checkout(isbn, saban, name):
             str(loan_date), str(due), "", 0, "대출중"])
     _adjust_available(isbn, -1)
     _refresh()
-    return True, {"title": book.get("title", ""), "due": str(due), "name": member["name"]}
+
+    # 대출 확인 + 반납 예정일 안내 메일
+    mailed = _mail_quiet(
+        member.get("email", ""),
+        "[사내도서관] 대출 완료 · %s" % book.get("title", ""),
+        ("%s님 안녕하세요.\n\n대출이 완료되었습니다.\n\n"
+         "  · 도서 : %s\n"
+         "  · 대출일 : %s\n"
+         "  · 반납 예정일 : %s (%d일)\n\n"
+         "반납일이 다가오면 다시 안내 메일을 보내 드립니다. "
+         "연장은 도서관 화면의 [🙋 내 대출·희망도서] 에서 %d회까지 가능합니다.")
+        % (member["name"], book.get("title", ""), str(loan_date), str(due), LOAN_DAYS, MAX_RENEW))
+    return True, {"title": book.get("title", ""), "due": str(due), "name": member["name"],
+                  "mailed": mailed, "email": member.get("email", "")}
 
 # ---------------- 반납 ----------------
 def _checkin(isbn, saban=""):
@@ -444,6 +682,27 @@ def _checkin(isbn, saban=""):
     waiting = _first_reservation(isbn)
     overdue = _is_overdue(loan)
     _refresh()
+
+    # 반납한 사람에게 확인 메일
+    _mail_quiet(
+        _member_email(loan.get("saban")),
+        "[사내도서관] 반납 완료 · %s" % book.get("title", ""),
+        ("%s님 안녕하세요.\n\n반납이 확인되었습니다.\n\n"
+         "  · 도서 : %s\n"
+         "  · 반납일 : %s\n\n"
+         "이용해 주셔서 감사합니다.") % (str(loan.get("name", "")), book.get("title", ""), str(_today())))
+    # 예약해 둔 사람에게 '들어왔습니다' 메일
+    if waiting:
+        _mail_quiet(
+            _member_email(waiting.get("saban")),
+            "[사내도서관] 예약하신 책이 들어왔습니다 · %s" % book.get("title", ""),
+            ("%s님 안녕하세요.\n\n예약해 두신 책이 반납되었습니다.\n\n"
+             "  · 도서 : %s\n"
+             "  · 위치 : %s\n\n"
+             "다른 분이 먼저 빌려 갈 수 있으니 가능하면 오늘 중에 대출해 주세요.")
+            % (str(waiting.get("name", "")), book.get("title", ""),
+               str(book.get("location", "") or "안내데스크에 문의")))
+
     return True, {"title": book.get("title", ""), "overdue": overdue,
                   "waiting": waiting["name"] if waiting else "", "borrower": str(loan.get("name", ""))}
 
@@ -469,12 +728,20 @@ def _renew(loan_id, saban):
             _retry(ws.update_cell, i + 2, _col("loans", "due_date"), str(newdue))
             _retry(ws.update_cell, i + 2, _col("loans", "renew_count"), cnt + 1)
             _refresh()
+            _mail_quiet(
+                _member_email(r.get("saban")),
+                "[사내도서관] 대출 연장 완료 · %s" % str(r.get("title", "")),
+                ("%s님 안녕하세요.\n\n대출 기간이 연장되었습니다.\n\n"
+                 "  · 도서 : %s\n"
+                 "  · 새 반납 예정일 : %s\n\n"
+                 "연장 횟수 %d/%d회를 사용하셨습니다.")
+                % (str(r.get("name", "")), str(r.get("title", "")), str(newdue), cnt + 1, MAX_RENEW))
             return True, {"due": str(newdue)}
     return False, "대출 기록을 찾을 수 없습니다."
 
 # ---------------- 예약 / 희망도서 ----------------
-def _reserve(isbn, saban, name):
-    member, err = _ensure_member(saban, name)
+def _reserve(isbn, saban, name, email=""):
+    member, err = _ensure_member(saban, name, email)
     if err:
         return False, err
     book = _find_book(isbn)
@@ -493,16 +760,42 @@ def _reserve(isbn, saban, name):
     _refresh()
     return True, "예약 완료. 반납되면 안내됩니다."
 
-def _add_wish(saban, name, title, author, reason):
-    member, err = _ensure_member(saban, name)
+def _add_wish(saban, name, title, author, reason, email=""):
+    member, err = _ensure_member(saban, name, email)
     if err:
         return False, err
     if not str(title).strip():
         return False, "희망 도서 제목을 입력하세요."
+    wid = str(uuid.uuid4())[:8]
     _retry(_ws("wishlist").append_row,
-           [str(uuid.uuid4())[:8], title, author, "", member["saban"],
+           [wid, title, author, "", member["saban"],
             member["name"], reason, str(_today()), "접수"])
     _refresh()
+
+    # 담당자에게 접수 알림
+    _mail_quiet(
+        WISH_TO,
+        "[사내도서관] 희망도서 신청 · %s" % str(title),
+        ("희망도서가 접수되었습니다.\n\n"
+         "  · 도서 : %s\n"
+         "  · 저자 : %s\n"
+         "  · 신청자 : %s (%s)\n"
+         "  · 신청자 이메일 : %s\n"
+         "  · 신청일 : %s\n"
+         "  · 신청 사유 : %s\n\n"
+         "구글 시트 '%s' 의 wishlist 탭에서 처리 상태를 바꿀 수 있습니다.")
+        % (str(title), str(author) or "-", member["name"], member["saban"],
+           member.get("email", "") or "-", str(_today()),
+           str(reason).strip() or "-", LIB_DB))
+    # 신청자에게 접수 확인
+    _mail_quiet(
+        member.get("email", ""),
+        "[사내도서관] 희망도서 신청이 접수되었습니다",
+        ("%s님 안녕하세요.\n\n신청해 주신 희망도서가 접수되었습니다.\n\n"
+         "  · 도서 : %s\n"
+         "  · 신청일 : %s\n\n"
+         "구입 여부가 결정되면 담당자가 안내해 드립니다.")
+        % (member["name"], str(title), str(_today())))
     return True, "희망도서 신청이 접수되었습니다."
 
 def _set_wish_status(wish_id, status):
@@ -827,8 +1120,9 @@ def _detail_page(isbn):
                     rc1, rc2 = st.columns(2)
                     rs = rc1.text_input("사번")
                     rn = rc2.text_input("이름 (처음 이용 시 1회)")
+                    re_ = st.text_input("이메일 (책이 들어오면 알려드립니다)")
                     if st.form_submit_button("예약 신청", use_container_width=True, type="primary"):
-                        ok, msg = _reserve(b.get("isbn"), rs, rn)
+                        ok, msg = _reserve(b.get("isbn"), rs, rn, re_)
                         (st.success if ok else st.error)(msg)
 
     _sec_title("책 소개", "어떤 책인가요")
@@ -851,9 +1145,40 @@ def _sec_title(text, sub=""):
 # ==========================================================
 # 화면
 # ==========================================================
+def _gate():
+    """도서관 입장 비밀번호 화면.
+       st.form 안에 넣었기 때문에 비밀번호를 적고 '엔터'만 쳐도 바로 입장합니다."""
+    if not LIB_GATE or st.session_state.get("lib_entered"):
+        return True
+    st.markdown(LIB_CSS, unsafe_allow_html=True)
+    st.markdown(
+        "<div class='lib-head'>"
+        "<div class='em'>Daehan Feed &middot; Library</div>"
+        "<h1>대한사료 사내도서관</h1>"
+        "<div class='rule'></div>"
+        "<div class='sub'>사내 임직원 전용입니다 &middot; 비밀번호를 입력해 주세요</div>"
+        "</div>", unsafe_allow_html=True)
+    _c1, _c2, _c3 = st.columns([1, 2, 1])
+    with _c2:
+        with st.form("lib_gate_form", clear_on_submit=True):
+            _pw = st.text_input("비밀번호", type="password",
+                                placeholder="비밀번호를 입력하고 엔터를 누르세요")
+            _go = st.form_submit_button("입장하기", use_container_width=True, type="primary")
+        if _go:
+            if str(_pw).strip() == ENTER_PW:
+                st.session_state["lib_entered"] = True
+                st.rerun()
+            else:
+                st.error("비밀번호가 올바르지 않습니다. 다시 입력해 주세요.")
+        st.markdown("<p class='lib-hint' style='text-align:center'>"
+                    "비밀번호를 모르시면 인사팀에 문의해 주세요.</p>", unsafe_allow_html=True)
+    return False
+
 def run_library():
     """바깥 껍데기: 구글 시트 오류가 나도 앱이 죽지 않고 안내 메시지를 보여준다."""
     try:
+        if not _gate():
+            return
         _run_library()
     except gspread.exceptions.SpreadsheetNotFound:
         st.error(f"구글 시트 '{LIB_DB}' 를 열 수 없습니다. 시트 이름과 서비스 계정 공유(편집자) 설정을 확인해 주세요.")
@@ -1056,6 +1381,17 @@ def _run_library():
                  "👑 **관리자 메뉴 → 🔧 시트 형식 변환** 을 한 번 실행해 주세요. "
                  "기존 도서·대출 기록은 그대로 옮겨지고, 예전 탭은 백업으로 남습니다.")
 
+    # 반납 예정·연체 안내 메일은 '누군가 도서관을 열었을 때' 하루 한 번만 보냅니다.
+    # (스트림릿 앱은 아무도 접속하지 않으면 잠들어 있어서 스스로 시간을 재지 못합니다)
+    if _mail_ready() and st.session_state.get("lib_mail_day") != str(_today()):
+        st.session_state["lib_mail_day"] = str(_today())
+        try:
+            _s, _f, _ = _run_reminders()
+            if _s:
+                st.toast("반납 안내 메일 %d통을 보냈습니다." % _s)
+        except Exception:
+            pass
+
     st.markdown("---")
 
     # 탭(st.tabs) 대신 메뉴 '버튼'을 씁니다.
@@ -1157,14 +1493,29 @@ def _run_library():
                     c1.caption("🆕 처음 보는 사번이에요. 오른쪽에 이름을 한 번만 적어 주세요. "
                                "다음부터는 사번만 넣으면 이름이 자동으로 나옵니다.")
 
+            # 반납 예정일·연체 안내를 받을 개인 이메일 (한 번 넣으면 다음부터 자동으로 채워집니다)
+            _saved_mail = _member_email(saban)
+            email = st.text_input("이메일 (반납 예정일·연체 안내를 받습니다)",
+                                  value=_saved_mail, placeholder="hong@daehanfeed.co.kr")
+            if _saved_mail and str(email).strip() == _saved_mail:
+                st.caption("✉️ 저장된 이메일로 안내가 갑니다. 바꾸시려면 위 칸을 고쳐 주세요.")
+            elif not str(email).strip():
+                st.caption("이메일은 도서관 안내(반납 예정일·연체·예약 도착)에만 사용하며, "
+                           "비워 두셔도 대출은 됩니다.")
+            if not _mail_ready():
+                st.caption("⚠️ 아직 메일 보내는 계정이 설정되지 않아 안내 메일은 발송되지 않습니다. "
+                           "(관리자 메뉴 → 📧 이메일 알림 설정)")
+
             if use_cam:
                 img = st.camera_input("책의 ISBN 바코드를 비추고 촬영하세요", key="co_cam")
                 code = _decode(img)
                 if code and st.session_state.get("co_last") != code:
-                    ok, res = _checkout(code, saban, name)
+                    ok, res = _checkout(code, saban, name, email)
                     st.session_state["co_last"] = code
                     if ok:
                         st.success(f"✅ **{res['title']}** 대출 완료 · 반납예정일 **{res['due']}**"); st.balloons()
+                        if res.get("mailed"):
+                            st.caption(f"✉️ {res['email']} 로 안내 메일을 보냈습니다.")
                     else:
                         st.error(f"⚠️ {res}")
                 elif img is not None and not code:
@@ -1174,11 +1525,13 @@ def _run_library():
                     manual = st.text_input("책 ISBN 바코드 (USB 스캐너로 스캔 또는 숫자 직접 입력)",
                                            value=prefill)
                     if st.form_submit_button("대출하기", use_container_width=True):
-                        ok, res = _checkout(manual, saban, name)
+                        ok, res = _checkout(manual, saban, name, email)
                         if ok:
                             st.session_state.pop("lib_prefill_isbn", None)
                             st.session_state.pop("lib_prefill_title", None)
                             st.success(f"✅ **{res['title']}** 대출 완료 · 반납예정일 **{res['due']}**"); st.balloons()
+                            if res.get("mailed"):
+                                st.caption(f"✉️ {res['email']} 로 안내 메일을 보냈습니다.")
                         else:
                             st.error(f"⚠️ {res}")
             st.markdown("<p class='lib-hint'>USB 스캐너는 입력칸에 커서를 두고 스캔하면 자동 입력됩니다.</p>", unsafe_allow_html=True)
@@ -1246,9 +1599,10 @@ def _run_library():
                     rc1, rc2 = st.columns(2)
                     rs = rc1.text_input("사번", key="res_saban")
                     rn = rc2.text_input("이름 (처음 이용 시 1회)", key="res_name")
+                    re_ = st.text_input("이메일 (책이 들어오면 알려드립니다)", key="res_mail")
                     if st.form_submit_button("예약 신청", use_container_width=True, type="primary"):
                         _b = _opts.get(_pick)
-                        ok, msg = _reserve((_b or {}).get("isbn"), rs, rn)
+                        ok, msg = _reserve((_b or {}).get("isbn"), rs, rn, re_)
                         (st.success if ok else st.error)(msg)
 
     # ---------------- 내 대출 / 희망도서 ----------------
@@ -1281,20 +1635,26 @@ def _run_library():
             wc1, wc2 = st.columns(2)
             ws_ = wc1.text_input("사번")
             wn_ = wc2.text_input("이름")
+            we_ = st.text_input("이메일 (구입 여부를 알려드립니다)")
             wt_ = st.text_input("도서 제목")
             wa_ = st.text_input("저자 (선택)")
             wr_ = st.text_area("신청 사유 (선택)", height=70)
             if st.form_submit_button("신청하기", use_container_width=True):
-                ok, msg = _add_wish(ws_, wn_, wt_, wa_, wr_)
+                ok, msg = _add_wish(ws_, wn_, wt_, wa_, wr_, we_)
                 (st.success if ok else st.error)(msg)
+        st.caption(f"신청하시면 담당자({WISH_TO})에게 바로 알림 메일이 갑니다.")
 
     # ---------------- 관리자 ----------------
     if menu == MENU[4]:
         if "lib_admin" not in st.session_state:
             st.session_state.lib_admin = False
         if not st.session_state.lib_admin:
-            pw = st.text_input("관리자 비밀번호", type="password", key="lib_admin_pw")
-            if st.button("로그인", key="lib_admin_login"):
+            # 폼 안에 넣어 두면 비밀번호를 적고 '엔터'만 쳐도 로그인됩니다.
+            with st.form("lib_admin_form", clear_on_submit=True):
+                pw = st.text_input("관리자 비밀번호", type="password",
+                                   placeholder="비밀번호를 입력하고 엔터를 누르세요")
+                _adm_go = st.form_submit_button("로그인", type="primary")
+            if _adm_go:
                 if pw == ADMIN_PW:
                     st.session_state.lib_admin = True; st.rerun()
                 else:
@@ -1433,14 +1793,91 @@ def _run_library():
                 else:
                     st.success("모든 책에 소개가 들어 있습니다.")
 
+            with st.expander("📧 이메일 알림 설정"):
+                _cfg = _mail_cfg()
+                if _cfg:
+                    st.success("메일 보내는 계정이 설정되어 있습니다 : **%s**" % _cfg["sender"])
+                else:
+                    st.warning("아직 메일 보내는 계정이 설정되지 않았습니다. "
+                               "지금은 안내 메일이 **발송되지 않습니다.**")
+                    st.caption("설정 방법은 함께 드린 안내문 "
+                               "`이메일_알림_설정.md` 를 보고 스트림릿 **Secrets** 에 "
+                               "`[mail]` 칸을 넣어 주세요.")
+
+                st.markdown("**어떤 메일이 나가나요?**")
+                st.caption("· 대출할 때 : 반납 예정일 안내\n"
+                           "· 반납할 때 : 반납 확인\n"
+                           "· 연장할 때 : 새 반납 예정일\n"
+                           "· 반납 %d일 전 : 미리 안내\n"
+                           "· 반납일이 지나면 : 연체 안내 (일주일에 한 번)\n"
+                           "· 예약한 책이 들어오면 : 도착 안내\n"
+                           "· 희망도서가 접수되면 : 담당자(%s)에게 알림"
+                           % (DUE_SOON, WISH_TO))
+
+                if _cfg:
+                    st.markdown("---")
+                    st.markdown("**시험 발송**")
+                    with st.form("mail_test_form"):
+                        _tm = st.text_input("받을 주소", value=_cfg["sender"])
+                        if st.form_submit_button("시험 메일 보내기"):
+                            if not _valid_mail(_tm):
+                                st.error("이메일 주소를 확인해 주세요.")
+                            else:
+                                _ok, _msg = _send_mail(
+                                    _tm, "[사내도서관] 메일 설정 시험",
+                                    "이 메일이 보이면 사내도서관 메일 설정이 정상입니다." + _MAIL_TAIL)
+                                (st.success("보냈습니다. 받은 편지함(또는 스팸함)을 확인해 주세요.")
+                                 if _ok else st.error(_msg))
+
+                    st.markdown("---")
+                    st.markdown("**반납 예정·연체 안내 메일**")
+                    st.caption("이 메일은 **누군가 도서관 화면을 열었을 때 하루 한 번** 자동으로 나갑니다. "
+                               "아무도 접속하지 않는 날에는 나가지 않으니, 그럴 때는 아래 버튼을 눌러 주세요. "
+                               "이미 보낸 안내는 다시 보내지 않습니다.")
+                    if st.button("지금 안내 메일 보내기", key="mail_run_now"):
+                        with st.spinner("메일을 보내는 중입니다..."):
+                            _s, _f, _note = _run_reminders()
+                        if _s or _f:
+                            st.success("보냄 %d통 / 실패 %d통" % (_s, _f))
+                        else:
+                            st.info(_note or "지금 보낼 안내 메일이 없습니다.")
+
+                    st.markdown("---")
+                    st.markdown("**이메일이 없는 대출자**")
+                    _noml = []
+                    for _l in active:
+                        if not _valid_mail(_member_email(_l.get("saban"))):
+                            _noml.append({"대출자": "%s(%s)" % (_l.get("name"), _l.get("saban")),
+                                          "도서": _l.get("title"),
+                                          "반납예정": _l.get("due_date")})
+                    if _noml:
+                        st.caption("이 분들께는 안내 메일이 가지 않습니다. "
+                                   "구글 시트 `members` 탭 → `email` 열에 적어 주시거나, "
+                                   "다음 대출 때 이메일을 입력받으면 자동으로 저장됩니다.")
+                        st.dataframe(pd.DataFrame(_noml), use_container_width=True, hide_index=True)
+                    else:
+                        st.success("대출 중인 모든 분의 이메일이 있습니다.")
+
+                if "email" not in _header("members"):
+                    st.markdown("---")
+                    if st.button("시트에 email 열 만들기", key="mk_mail_col"):
+                        if _ensure_col("members", "email"):
+                            st.success("members 탭 맨 오른쪽에 email 열을 만들었습니다.")
+                            st.rerun()
+                        else:
+                            st.error("열을 만들지 못했습니다. 구글 시트 공유 권한을 확인해 주세요.")
+
             with st.expander("👤 회원 등록"):
                 with st.form("member_form", clear_on_submit=True):
-                    mc1, mc2 = st.columns(2)
+                    mc1, mc2, mc3 = st.columns([1, 1, 2])
                     ms = mc1.text_input("사번")
                     mn = mc2.text_input("이름")
+                    me = mc3.text_input("이메일 (선택)", placeholder="hong@daehanfeed.co.kr")
                     if st.form_submit_button("회원 등록"):
-                        mem, err = _ensure_member(ms, mn)
+                        mem, err = _ensure_member(ms, mn, me)
                         (st.error(err) if err else st.success(f"등록/확인 완료: {mem['name']}"))
+                st.caption("이메일은 반납 예정일·연체·예약 도착 안내에만 사용합니다. "
+                           "직원이 대출할 때 직접 입력해도 자동으로 저장됩니다.")
 
             with st.expander(f"⏰ 연체 목록 ({len(overdue)})"):
                 if not overdue:
