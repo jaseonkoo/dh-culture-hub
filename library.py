@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v12 (2026-07-30 · 회사 이메일 필수)"   # 화면 맨 위에 표시됩니다. 배포 확인용.
+LIB_VER    = "v13 (2026-07-30 · 머리말 정리)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -984,6 +984,19 @@ def _goto_detail(isbn):
     st.session_state["lib_detail_back"] = st.session_state.get("lib_menu", MENU[0])
     st.rerun()
 
+def _back_to_list(key):
+    """책 상세 화면 → 원래 보던 목록으로 되돌아간다.
+       (플랫폼 메인으로 나가는 버튼과 헷갈리지 않도록 글자를 분명히 적어 둡니다)"""
+    where = st.session_state.get("lib_detail_back", "")
+    if where not in MENU:
+        where = st.session_state.get("lib_menu", MENU[0])
+    label = "◀ %s 화면으로 돌아가기" % where.split(" ", 1)[-1]
+    if st.columns([1, 2])[0].button(label, key=key, use_container_width=True):
+        st.session_state["lib_menu"] = where
+        st.session_state.pop("lib_detail", None)
+        st.session_state.pop("lib_detail_back", None)
+        st.rerun()
+
 def _goto_lend(book):
     """[바로 대출하기] → 대출·반납 메뉴로 이동하면서 ISBN을 미리 채워 둔다."""
     st.session_state.pop("lib_detail", None)
@@ -1111,9 +1124,7 @@ def _book_summary_text(book):
 def _detail_page(isbn):
     """책 한 권의 자세한 정보 화면."""
     b = _find_book(isbn)
-    if st.button("◀ 목록으로 돌아가기", key="dt_back"):
-        st.session_state.pop("lib_detail", None)
-        st.rerun()
+    _back_to_list("dt_back")
     if not b:
         st.warning("책을 찾지 못했습니다. 목록으로 돌아가 주세요.")
         return
@@ -1170,6 +1181,9 @@ def _detail_page(isbn):
               if _norm_isbn(l.get("isbn")) == _norm_isbn(isbn))
     if cnt:
         st.markdown(f"<p class='lib-hint'>지금까지 {cnt}번 대출되었습니다.</p>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    _back_to_list("dt_back_bottom")
 
 def _sec_title(text, sub=""):
     sub_html = f"<span class='lib-sec-sub'>{_esc(sub)}</span>" if sub else ""
@@ -1233,15 +1247,11 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 }
 
 /* ---------- 간판 ---------- */
-.lib-head { text-align:center; padding:26px 10px 14px; }
+.lib-head { text-align:center; padding:30px 10px 10px; }
 .lib-head .em { font-family:'Nanum Myeongjo',serif; font-size:.72rem; letter-spacing:.34em;
-  color:#A9782E; text-transform:uppercase; margin-bottom:8px; }
+  color:#A9782E; text-transform:uppercase; margin-bottom:10px; }
 .lib-head h1 { font-size:2.35rem; font-weight:800; margin:0; color:#1F4A3C;
   font-family:'Nanum Myeongjo',serif; }
-.lib-head .rule { width:220px; height:0; margin:14px auto 12px; border-top:2px solid #1F4A3C;
-  border-bottom:1px solid #1F4A3C; padding-top:3px; }
-.lib-head .sub { font-size:.88rem; color:#645B4E; line-height:1.6; }
-.lib-head .ver { font-size:.7rem; color:#A79A85; margin-top:6px; }
 
 /* ---------- 구역 제목 ---------- */
 .lib-sec { display:flex; align-items:baseline; gap:12px; margin:26px 0 14px;
@@ -1369,10 +1379,6 @@ def _run_library():
         "<div class='lib-head'>"
         "<div class='em'>Daehan Feed &middot; Library</div>"
         "<h1>대한사료 사내도서관</h1>"
-        "<div class='rule'></div>"
-        "<div class='sub'>책에 인쇄된 ISBN 바코드로 직접 빌리고 반납하세요 &middot; "
-        "개인정보는 사번과 이름만 사용합니다</div>"
-        f"<div class='ver'>{LIB_VER}</div>"
         "</div>", unsafe_allow_html=True)
 
     if not _SCAN_OK:
@@ -1882,6 +1888,8 @@ def _run_library():
                             st.rerun()
                         else:
                             st.error("열을 만들지 못했습니다. 구글 시트 공유 권한을 확인해 주세요.")
+
+            st.caption("프로그램 버전 : %s" % LIB_VER)
 
             with st.expander("👤 회원 등록"):
                 with st.form("member_form", clear_on_submit=True):
