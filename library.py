@@ -23,12 +23,17 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v13 (2026-07-30 · 머리말 정리)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v15 (2026-07-30 · 메일 계정 자동 찾기)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
 # 대출할 때 받는 이메일은 이 도메인만 허용합니다. (회사 메일만)
 MAIL_DOMAIN = "daehanfeed.co.kr"
+
+# 메일서버를 직접 정하고 싶을 때만 적으세요. 비워 두면 알아서 찾습니다.
+# (회사 메일이 구글·네이버·다음이 아니라면 전산 담당자에게 물어보고 적어 주세요)
+MAIL_HOST  = ""     # 예) "smtp.gmail.com"
+MAIL_PORT  = 0      # 예) 465 또는 587
 
 # 희망도서가 접수되면 이 주소로 알림 메일이 갑니다.
 WISH_TO    = "jsgu@daehanfeed.co.kr"
@@ -211,31 +216,123 @@ def _to_int(v, default=0):
 #      app_password = "구글 앱 비밀번호 16자리"
 #  - 설정이 없으면 메일만 조용히 건너뛰고, 도서관 기능은 그대로 동작합니다.
 # ==========================================================
+# ----- 메일 계정 자동 찾기 --------------------------------------------------
+# 이미 다른 프로그램(멘토링 등)에서 메일을 쓰고 계시면, Secrets 안의 이름이
+# [mail] 이 아닐 수 있습니다. 그래서 이름을 정해 놓고 찾지 않고,
+# Secrets 전체를 훑어서 '메일 주소처럼 생긴 값 + 비밀번호처럼 생긴 값'을 찾아 씁니다.
+
+# 이 묶음들은 구글 시트 열쇠라서 절대 건드리지 않습니다.
+_MAIL_SKIP = ("gcp", "service_account", "serviceaccount", "google_service",
+              "firebase", "credential", "connections", "sheet")
+# 보내는 사람이 아니라 '받는 사람'을 적어 둔 칸 (여기서 계정을 읽으면 안 됩니다)
+_MAIL_NOT_SENDER = ("to", "recv", "receiv", "target", "받는", "수신", "manager", "admin_mail")
+# 비밀번호가 들어 있을 만한 칸 이름
+_MAIL_PW_KEY = ("pass", "pw", "secret", "token", "key", "app_", "비밀번호", "암호")
+
+def _looks_mail(v):
+    v = str(v or "").strip()
+    return ("@" in v) and ("." in v.split("@")[-1]) and (" " not in v) and 6 <= len(v) <= 120
+
+def _secret_groups():
+    """Secrets 안의 묶음들을 [(묶음이름, 사전)] 으로 돌려준다.
+       맨 앞은 묶음 없이 그냥 적어 둔 값들."""
+    out, top = [], {}
+    try:
+        keys = list(st.secrets.keys())
+    except Exception:
+        return out
+    for k in keys:
+        try:
+            v = st.secrets[k]
+        except Exception:
+            continue
+        if hasattr(v, "keys"):
+            out.append((str(k), v))
+        else:
+            top[str(k)] = v
+    if top:
+        out.insert(0, ("(묶음 없음)", top))
+    return out
+
+def _mail_pick(name, d):
+    """묶음 하나에서 보내는 주소·비밀번호를 찾아본다. 못 찾으면 None."""
+    try:
+        items = [(str(k), d[k]) for k in d.keys()]
+    except Exception:
+        return None
+    sender = pw = ""
+    for k, v in items:
+        if hasattr(v, "keys"):
+            continue
+        kl = k.lower()
+        val = str(v or "").strip()
+        if not val:
+            continue
+        if (not sender) and _looks_mail(val) and not any(b in kl for b in _MAIL_NOT_SENDER):
+            sender = val
+        elif (not pw) and any(b in kl for b in _MAIL_PW_KEY) and not _looks_mail(val):
+            if 4 <= len(val) <= 100 and "BEGIN" not in val:
+                pw = val
+    if not (sender and pw):
+        return None
+    host = ""
+    port = 0
+    for k, v in items:
+        kl = str(k).lower()
+        if "host" in kl or "server" in kl:
+            host = str(v or "").strip()
+        if kl == "port" or kl.endswith("_port"):
+            port = _to_int(v, 0)
+    if MAIL_HOST:
+        host = MAIL_HOST
+    if MAIL_PORT:
+        port = _to_int(MAIL_PORT, 0)
+    if not host:
+        host = _mail_host_guess(sender)
+    if not port:
+        port = 587 if ("outlook" in host or "office365" in host) else 465
+    return {"sender": sender, "pw": pw, "host": host, "port": port, "where": name}
+
+def _mail_host_guess(sender):
+    """메일 주소를 보고 서버 주소를 짐작한다."""
+    dom = str(sender).split("@")[-1].lower()
+    table = {"gmail.com": "smtp.gmail.com",
+             "naver.com": "smtp.naver.com",
+             "daum.net": "smtp.daum.net",
+             "hanmail.net": "smtp.daum.net",
+             "nate.com": "smtp.mail.nate.com",
+             "outlook.com": "smtp-mail.outlook.com",
+             "hotmail.com": "smtp-mail.outlook.com"}
+    return table.get(dom, "smtp.gmail.com")
+
 def _mail_cfg():
-    """앱 설정(Secrets)에서 메일 보내는 계정을 읽는다. 없으면 None."""
-    for sec in ("mail", "email", "smtp", "gmail"):
-        try:
-            d = st.secrets[sec]
-        except Exception:
+    """앱 설정(Secrets)에서 메일 보내는 계정을 찾는다. 없으면 None."""
+    groups = _secret_groups()
+    # 이름이 메일 같아 보이는 묶음을 먼저 살펴본다.
+    likely = ("mail", "smtp", "gmail", "naver")
+    groups.sort(key=lambda t: 0 if any(w in t[0].lower() for w in likely) else 1)
+    for name, d in groups:
+        if any(b in name.lower() for b in _MAIL_SKIP):
             continue
-        try:
-            sender = ""
-            for k in ("sender", "user", "username", "address", "from"):
-                v = str(d.get(k, "") or "").strip()
-                if v:
-                    sender = v; break
-            pw = ""
-            for k in ("app_password", "password", "pw", "app_pw"):
-                v = str(d.get(k, "") or "").strip()
-                if v:
-                    pw = v; break
-            host = str(d.get("host", "") or "smtp.gmail.com").strip()
-            port = _to_int(d.get("port", 465), 465) or 465
-        except Exception:
-            continue
-        if sender and pw:
-            return {"sender": sender, "pw": pw, "host": host, "port": port}
+        got = _mail_pick(name, d)
+        if got:
+            return got
     return None
+
+def _mail_seen():
+    """관리자 화면에서 '무엇이 보이는지'를 알려주기 위한 목록.
+       비밀번호 값은 절대 보여주지 않습니다."""
+    rows = []
+    for name, d in _secret_groups():
+        skip = any(b in name.lower() for b in _MAIL_SKIP)
+        try:
+            keys = [str(k) for k in d.keys()]
+        except Exception:
+            keys = []
+        rows.append({"묶음 이름": name,
+                     "안에 있는 칸 이름": ", ".join(keys[:12]) if keys else "-",
+                     "메일 계정으로 볼까요?": "아니오 (구글 시트 열쇠)" if skip else "예"})
+    return rows
 
 def _mail_ready():
     return _mail_cfg() is not None
@@ -244,7 +341,7 @@ def _send_mail(to, subject, body):
     """메일 한 통 보내기. 반환: (성공여부, 메시지)"""
     cfg = _mail_cfg()
     if not cfg:
-        return False, "메일 계정이 설정되어 있지 않습니다. (앱 설정 → Secrets → [mail])"
+        return False, "메일 계정을 찾지 못했습니다. (👑 관리자 → 📧 이메일 알림 설정 에서 확인)"
     to = str(to or "").strip()
     if not _valid_mail(to):
         return False, "이메일 주소가 올바르지 않습니다."
@@ -253,18 +350,27 @@ def _send_mail(to, subject, body):
     msg["From"] = "대한사료 사내도서관 <%s>" % cfg["sender"]
     msg["To"] = to
     msg.set_content(str(body))
-    try:
-        if int(cfg["port"]) == 587:
-            with smtplib.SMTP(cfg["host"], int(cfg["port"]), timeout=20) as sv:
-                sv.starttls(); sv.login(cfg["sender"], cfg["pw"]); sv.send_message(msg)
-        else:
-            with smtplib.SMTP_SSL(cfg["host"], int(cfg["port"]), timeout=20) as sv:
-                sv.login(cfg["sender"], cfg["pw"]); sv.send_message(msg)
-        return True, "보냈습니다."
-    except smtplib.SMTPAuthenticationError:
-        return False, "메일 계정 로그인에 실패했습니다. 구글 '앱 비밀번호'를 다시 확인해 주세요."
-    except Exception as e:
-        return False, "메일 발송 실패: %s" % str(e)[:120]
+    # 465(SSL)와 587(TLS) 중 어느 쪽인지 몰라서 실패하는 일이 많습니다.
+    # 그래서 정해진 포트로 먼저 해 보고, 안 되면 나머지 포트로 한 번 더 해 봅니다.
+    first = int(cfg["port"] or 465)
+    ports = [first, 587 if first != 587 else 465]
+    err = ""
+    for pt in ports:
+        try:
+            if pt == 587:
+                with smtplib.SMTP(cfg["host"], pt, timeout=20) as sv:
+                    sv.ehlo(); sv.starttls(); sv.login(cfg["sender"], cfg["pw"]); sv.send_message(msg)
+            else:
+                with smtplib.SMTP_SSL(cfg["host"], pt, timeout=20) as sv:
+                    sv.login(cfg["sender"], cfg["pw"]); sv.send_message(msg)
+            return True, "보냈습니다."
+        except smtplib.SMTPAuthenticationError:
+            # 비밀번호 문제는 포트를 바꿔도 똑같으므로 여기서 멈춥니다.
+            return False, ("메일 계정 로그인에 실패했습니다. 앱 비밀번호(16자리)를 다시 확인해 주세요. "
+                           "· 계정 %s" % cfg["sender"])
+        except Exception as e:
+            err = "%s (서버 %s:%s)" % (str(e)[:100], cfg["host"], pt)
+    return False, "메일 발송 실패: %s" % err
 
 _MAIL_TAIL = ("\n\n───────────────\n대한사료 사내도서관\n"
               "이 메일은 자동으로 발송되었습니다. 문의는 인사팀으로 부탁드립니다.")
@@ -1816,13 +1922,35 @@ def _run_library():
             with st.expander("📧 이메일 알림 설정"):
                 _cfg = _mail_cfg()
                 if _cfg:
-                    st.success("메일 보내는 계정이 설정되어 있습니다 : **%s**" % _cfg["sender"])
+                    st.success("메일 보내는 계정을 찾았습니다 : **%s**" % _cfg["sender"])
+                    st.caption("Secrets 의 **[%s]** 묶음에서 읽었습니다. "
+                               "(메일서버 %s · 포트 %s)"
+                               % (_cfg.get("where", "?"), _cfg["host"], _cfg["port"]))
                 else:
-                    st.warning("아직 메일 보내는 계정이 설정되지 않았습니다. "
+                    st.warning("메일 보내는 계정을 찾지 못했습니다. "
                                "지금은 안내 메일이 **발송되지 않습니다.**")
-                    st.caption("설정 방법은 함께 드린 안내문 "
-                               "`이메일_알림_설정.md` 를 보고 스트림릿 **Secrets** 에 "
-                               "`[mail]` 칸을 넣어 주세요.")
+                    st.caption("도서관은 Secrets 안을 전부 훑어서 "
+                               "**메일 주소처럼 생긴 값**과 **비밀번호 칸**이 "
+                               "같이 들어 있는 묶음을 찾습니다. "
+                               "아래 표에서 무엇이 보이는지 확인해 주세요.")
+
+                with st.expander("🔎 Secrets 에 무엇이 보이나요? (값은 안 보여줍니다)"):
+                    st.caption("비밀번호·열쇠 값은 절대 표시하지 않습니다. **칸 이름만** 보여드립니다. "
+                               "메일 계정이 들어 있는 묶음에는 "
+                               "**주소 칸(@가 들어간 값)** 과 **비밀번호 칸**(이름에 "
+                               "password·pw·secret·token·key 중 하나가 들어간 칸)이 "
+                               "둘 다 있어야 합니다.")
+                    _seen = _mail_seen()
+                    if _seen:
+                        st.dataframe(pd.DataFrame(_seen), use_container_width=True, hide_index=True)
+                    else:
+                        st.error("Secrets 를 하나도 읽지 못했습니다. "
+                                 "스트림릿 앱 설정(Settings → Secrets)을 확인해 주세요.")
+                    st.caption("이름이 달라서 못 찾는 것 같으면, "
+                               "Secrets 맨 아래에 아래 3줄을 **추가**해 주세요. "
+                               "(기존 내용은 절대 지우지 마세요)")
+                    st.code('[mail]\nsender = "보내는주소@daehanfeed.co.kr"\n'
+                            'app_password = "앱 비밀번호 16자리"', language="toml")
 
                 st.markdown("**어떤 메일이 나가나요?**")
                 st.caption("· 대출할 때 : 반납 예정일 안내\n"
