@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v15 (2026-07-30 · 메일 계정 자동 찾기)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v16 (2026-07-30 · 대출·반납 최종 확인)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -32,8 +32,8 @@ MAIL_DOMAIN = "daehanfeed.co.kr"
 
 # 메일서버를 직접 정하고 싶을 때만 적으세요. 비워 두면 알아서 찾습니다.
 # (회사 메일이 구글·네이버·다음이 아니라면 전산 담당자에게 물어보고 적어 주세요)
-MAIL_HOST  = "smtp.dooray.com"     # 예) "smtp.gmail.com"
-MAIL_PORT  = 465      # 예) 465 또는 587
+MAIL_HOST  = ""     # 예) "smtp.gmail.com"
+MAIL_PORT  = 0      # 예) 465 또는 587
 
 # 희망도서가 접수되면 이 주소로 알림 메일이 갑니다.
 WISH_TO    = "jsgu@daehanfeed.co.kr"
@@ -781,6 +781,26 @@ def _checkout(isbn, saban, name, email=""):
                   "mailed": mailed, "email": member.get("email", "")}
 
 # ---------------- 반납 ----------------
+def _pick_loan(isbn, saban=""):
+    """반납할 대출 기록 하나를 고른다.
+       반환 : (성공여부, 결과)  결과는 (줄번호, 대출기록) 또는 안내문
+       ※ 확인 화면과 실제 반납이 똑같은 기준으로 고르도록 여기 한 곳에 모아 두었습니다."""
+    open_loans = [(i + 2, r) for i, r in enumerate(_records("loans"))
+                  if _norm_isbn(r.get("isbn")) == isbn and r.get("status") == "대출중"]
+    if not open_loans:
+        return False, "대출 중이 아닌 책입니다. (이미 반납되었을 수 있어요)"
+    if len(open_loans) == 1:
+        return True, open_loans[0]
+    saban = str(saban).strip()
+    if not saban:
+        return False, {"need_saban": True,
+                       "msg": "이 책은 여러 권이 대출 중이에요. 반납자의 사번을 입력한 뒤 다시 시도해 주세요."}
+    cand = [t for t in open_loans if str(t[1].get("saban")).strip() == saban]
+    if not cand:
+        return False, {"need_saban": True, "msg": "해당 사번으로 이 책을 대출한 기록이 없어요. 사번을 확인해 주세요."}
+    cand.sort(key=lambda t: str(t[1].get("due_date", "")))
+    return True, cand[0]
+
 def _checkin(isbn, saban=""):
     isbn = _norm_isbn(isbn)
     if not isbn:
@@ -789,23 +809,9 @@ def _checkin(isbn, saban=""):
     if not book:
         return False, f"등록되지 않은 도서입니다. (ISBN {isbn})"
     ws = _ws("loans")
-    open_loans = [(i + 2, r) for i, r in enumerate(_records("loans"))
-                  if _norm_isbn(r.get("isbn")) == isbn and r.get("status") == "대출중"]
-    if not open_loans:
-        return False, "대출 중이 아닌 책입니다. (이미 반납되었을 수 있어요)"
-
-    if len(open_loans) == 1:
-        target = open_loans[0]
-    else:
-        saban = str(saban).strip()
-        if not saban:
-            return False, {"need_saban": True,
-                           "msg": "이 책은 여러 권이 대출 중이에요. 반납자의 사번을 입력한 뒤 다시 시도해 주세요."}
-        cand = [t for t in open_loans if str(t[1].get("saban")).strip() == saban]
-        if not cand:
-            return False, {"need_saban": True, "msg": "해당 사번으로 이 책을 대출한 기록이 없어요. 사번을 확인해 주세요."}
-        cand.sort(key=lambda t: str(t[1].get("due_date", "")))
-        target = cand[0]
+    _got, target = _pick_loan(isbn, saban)
+    if not _got:
+        return False, target
 
     row, loan = target
     _retry(ws.update_cell, row, _col("loans", "return_date"), str(_today()))
@@ -1227,6 +1233,44 @@ def _book_summary_text(book):
     """책 소개 글. 시트에 없으면 빈 문자열."""
     return str((book or {}).get("summary", "") or "").strip()
 
+def _stage_scan(kind, isbn):
+    """스캔한 바코드를 '정말 하시겠어요?' 확인 대기 상태로 올려 둔다.
+       kind : "co" = 대출, "ci" = 반납
+       바코드가 이상하거나 없는 책이면 확인 화면까지 가지 않고 그 자리에서 알려 준다."""
+    code = _norm_isbn(isbn)
+    if not code:
+        st.error("⚠️ 바코드를 읽지 못했습니다. 다시 스캔하거나 숫자를 직접 넣어 주세요.")
+        return
+    if not _find_book(code):
+        st.error("⚠️ 등록되지 않은 도서입니다. (ISBN %s)" % code)
+        return
+    st.session_state["lib_%s_pend" % kind] = code
+    st.rerun()
+
+def _confirm_card(icon, head, rows, foot=""):
+    """확인 화면에 보여 줄 노란 상자. (책 정보 + 안내문)"""
+    body = "".join("<tr><th>%s</th><td>%s</td></tr>" % (_esc(k), _esc(v)) for k, v in rows)
+    st.markdown(
+        "<div class='lib-ask'><div class='lib-ask-h'>%s %s</div>"
+        "<table class='lib-tb'>%s</table>%s</div>"
+        % (icon, _esc(head), body,
+           ("<div class='lib-ask-f'>%s</div>" % _esc(foot)) if foot else ""),
+        unsafe_allow_html=True)
+
+def _show_done():
+    """확인 → 처리 → 화면 새로고침 뒤에 결과를 한 번 보여 준다."""
+    m = st.session_state.pop("lib_done_msg", None)
+    if not m:
+        return
+    if m.get("ok"):
+        st.success(m.get("text", ""))
+        if m.get("cap"):
+            st.caption(m["cap"])
+        if m.get("party"):
+            st.balloons()
+    else:
+        st.error(m.get("text", ""))
+
 def _detail_page(isbn):
     """책 한 권의 자세한 정보 화면."""
     b = _find_book(isbn)
@@ -1358,6 +1402,14 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
   color:#A9782E; text-transform:uppercase; margin-bottom:10px; }
 .lib-head h1 { font-size:2.35rem; font-weight:800; margin:0; color:#1F4A3C;
   font-family:'Nanum Myeongjo',serif; }
+
+/* ---------- 확인 상자 (정말 대출/반납할까요?) ---------- */
+.lib-ask { border:2px solid #A9782E; background:#FFF9EC; border-radius:12px;
+  padding:16px 18px 14px; margin:6px 0 12px; }
+.lib-ask-h { font-family:'Nanum Myeongjo',serif; font-size:1.15rem; font-weight:800;
+  color:#7A5518; margin-bottom:10px; }
+.lib-ask-f { margin-top:10px; font-size:.86rem; color:#7A5518; }
+.lib-ask .lib-tb th { width:96px; color:#7A5518; }
 
 /* ---------- 구역 제목 ---------- */
 .lib-sec { display:flex; align-items:baseline; gap:12px; margin:26px 0 14px;
@@ -1575,6 +1627,9 @@ def _run_library():
             _mc = MODES[0]
         mode = st.radio("무엇을 하시겠어요?", MODES, index=MODES.index(_mc), horizontal=True)
         st.session_state["lib_mode_cur"] = mode
+
+        # 바로 앞에서 처리한 결과(대출 완료·반납 완료)를 여기서 보여 줍니다.
+        _show_done()
         use_cam = st.checkbox("📷 휴대폰 카메라로 스캔", key="lib_usecam",
                               help="체크하면 카메라가 켜집니다. USB 스캐너·직접 입력은 체크 없이 사용하세요.")
 
@@ -1630,70 +1685,132 @@ def _run_library():
                 st.caption("⚠️ 아직 메일 보내는 계정이 설정되지 않아 안내 메일은 발송되지 않습니다. "
                            "(관리자 메뉴 → 📧 이메일 알림 설정)")
 
-            if use_cam:
+            # 스캔하자마자 바로 빌려지지 않습니다.
+            # 먼저 '이 책이 맞습니까?' 하고 한 번 더 물어봅니다.
+            _pend = str(st.session_state.get("lib_co_pend", "") or "")
+            if _pend:
+                _pb = _find_book(_pend) or {}
+                _rows = [("제목", str(_pb.get("title", "") or "-")),
+                         ("저자", _clean_author(_pb.get("author")) or "-"),
+                         ("책 위치", str(_pb.get("location", "") or "-")),
+                         ("ISBN", _pend),
+                         ("빌리는 분", ("%s (%s)" % (name, saban)) if str(name).strip() else "사번·이름을 위에 넣어 주세요"),
+                         ("반납 예정일", str(_today() + datetime.timedelta(days=LOAN_DAYS)))]
+                _confirm_card("📕", "이 책을 빌리시는 것이 맞습니까?", _rows,
+                              "책 표지의 제목과 위 제목이 같은지 확인한 뒤 [네, 대출합니다]를 눌러 주세요.")
+                _av = _to_int(_pb.get("available_qty"))
+                if _av <= 0:
+                    st.warning("지금 남은 수량이 없습니다. 그래도 진행하면 대출되지 않고 안내가 나옵니다.")
+                yc, nc = st.columns(2)
+                if yc.button("✅ 네, 대출합니다", key="co_yes", type="primary", use_container_width=True):
+                    ok, res = _checkout(_pend, saban, name, email)
+                    if ok:
+                        st.session_state.pop("lib_co_pend", None)
+                        st.session_state.pop("lib_prefill_isbn", None)
+                        st.session_state.pop("lib_prefill_title", None)
+                        st.session_state["lib_done_msg"] = {
+                            "ok": True, "party": True,
+                            "text": "✅ **%s** 대출 완료 · 반납예정일 **%s**" % (res["title"], res["due"]),
+                            "cap": ("✉️ %s 로 안내 메일을 보냈습니다." % res["email"]) if res.get("mailed") else ""}
+                        st.rerun()
+                    else:
+                        # 사번·이메일이 빠졌을 때는 확인 화면을 그대로 두어
+                        # 위 칸을 고친 뒤 다시 누를 수 있게 합니다.
+                        st.error("⚠️ %s" % res)
+                if nc.button("✖ 아니요, 취소", key="co_no", use_container_width=True):
+                    st.session_state.pop("lib_co_pend", None)
+                    st.rerun()
+            elif use_cam:
                 img = st.camera_input("책의 ISBN 바코드를 비추고 촬영하세요", key="co_cam")
                 code = _decode(img)
-                if code and st.session_state.get("co_last") != code:
-                    ok, res = _checkout(code, saban, name, email)
-                    st.session_state["co_last"] = code
-                    if ok:
-                        st.success(f"✅ **{res['title']}** 대출 완료 · 반납예정일 **{res['due']}**"); st.balloons()
-                        if res.get("mailed"):
-                            st.caption(f"✉️ {res['email']} 로 안내 메일을 보냈습니다.")
-                    else:
-                        st.error(f"⚠️ {res}")
+                _shot = getattr(img, "file_id", None) or getattr(img, "id", None) or code
+                if code and st.session_state.get("co_last") != _shot:
+                    st.session_state["co_last"] = _shot
+                    _stage_scan("co", code)
                 elif img is not None and not code:
                     st.warning("바코드를 인식하지 못했어요. 조금 더 가까이서 다시 촬영해 주세요.")
             else:
                 with st.form("co_form", clear_on_submit=True):
                     manual = st.text_input("책 ISBN 바코드 (USB 스캐너로 스캔 또는 숫자 직접 입력)",
                                            value=prefill)
-                    if st.form_submit_button("대출하기", use_container_width=True):
-                        ok, res = _checkout(manual, saban, name, email)
-                        if ok:
-                            st.session_state.pop("lib_prefill_isbn", None)
-                            st.session_state.pop("lib_prefill_title", None)
-                            st.success(f"✅ **{res['title']}** 대출 완료 · 반납예정일 **{res['due']}**"); st.balloons()
-                            if res.get("mailed"):
-                                st.caption(f"✉️ {res['email']} 로 안내 메일을 보냈습니다.")
-                        else:
-                            st.error(f"⚠️ {res}")
-            st.markdown("<p class='lib-hint'>USB 스캐너는 입력칸에 커서를 두고 스캔하면 자동 입력됩니다.</p>", unsafe_allow_html=True)
+                    _go = st.form_submit_button("확인 화면으로", use_container_width=True,
+                                                type="primary")
+                if _go:
+                    _stage_scan("co", manual)
+            st.markdown("<p class='lib-hint'>USB 스캐너는 입력칸에 커서를 두고 스캔하면 자동 입력됩니다. "
+                        "스캔한 뒤에는 <b>책이 맞는지 한 번 더 확인</b>하고 [네, 대출합니다]를 눌러 주세요.</p>",
+                        unsafe_allow_html=True)
 
         # ===== 반납 =====
         else:
             ci_saban = st.text_input("반납자 사번 (같은 책 여러 권이 대출 중일 때만 필요)", key="ci_saban", placeholder="보통은 비워두어도 됩니다")
-            if use_cam:
+            # 반납도 스캔하자마자 처리하지 않고, 한 번 더 확인합니다.
+            _pendi = str(st.session_state.get("lib_ci_pend", "") or "")
+            if _pendi:
+                _cb = _find_book(_pendi) or {}
+                _got, _tg = _pick_loan(_pendi, ci_saban)
+                _rows = [("제목", str(_cb.get("title", "") or "-")),
+                         ("ISBN", _pendi)]
+                _foot = "책 표지의 제목과 위 제목이 같은지 확인한 뒤 [네, 반납합니다]를 눌러 주세요."
+                _blocked = False
+                if _got:
+                    _loan = _tg[1]
+                    _late = _is_overdue(_loan)
+                    _rows += [("빌린 분", "%s (%s)" % (str(_loan.get("name", "")),
+                                                     str(_loan.get("saban", "")))),
+                              ("대출일", str(_loan.get("loan_date", "") or "-")),
+                              ("반납 예정일", str(_loan.get("due_date", "") or "-")
+                                              + ("  ⚠️ 연체" if _late else ""))]
+                else:
+                    _blocked = True
+                    if isinstance(_tg, dict) and _tg.get("need_saban"):
+                        _foot = _tg["msg"]
+                    else:
+                        _foot = str(_tg)
+                _confirm_card("📗", "이 책을 반납하시는 것이 맞습니까?", _rows, _foot)
+                if _blocked and isinstance(_tg, dict) and _tg.get("need_saban"):
+                    st.info("위쪽 **반납자 사번** 칸에 사번을 넣은 뒤 [네, 반납합니다]를 눌러 주세요.")
+                elif _blocked:
+                    st.error("⚠️ %s" % _tg)
+                yc, nc = st.columns(2)
+                if yc.button("✅ 네, 반납합니다", key="ci_yes", type="primary", use_container_width=True):
+                    ok, res = _checkin(_pendi, ci_saban)
+                    if ok:
+                        extra = " (연체 반납)" if res["overdue"] else ""
+                        wait = (" · 🔔 예약자 %s님 대기" % res["waiting"]) if res["waiting"] else ""
+                        st.session_state.pop("lib_ci_pend", None)
+                        st.session_state["lib_done_msg"] = {
+                            "ok": True,
+                            "text": "✅ **%s** 반납 완료%s%s" % (res["title"], extra, wait)}
+                        st.rerun()
+                    elif isinstance(res, dict) and res.get("need_saban"):
+                        st.info(res["msg"])
+                    else:
+                        st.session_state.pop("lib_ci_pend", None)
+                        st.session_state["lib_done_msg"] = {"ok": False, "text": "⚠️ %s" % res}
+                        st.rerun()
+                if nc.button("✖ 아니요, 취소", key="ci_no", use_container_width=True):
+                    st.session_state.pop("lib_ci_pend", None)
+                    st.rerun()
+            elif use_cam:
                 img = st.camera_input("반납할 책의 ISBN 바코드를 촬영하세요", key="ci_cam")
                 code = _decode(img)
-                if code and st.session_state.get("ci_last") != code:
-                    ok, res = _checkin(code, ci_saban)
-                    if ok:
-                        st.session_state["ci_last"] = code
-                        extra = " (연체 반납)" if res["overdue"] else ""
-                        wait = f" · 🔔 예약자 {res['waiting']}님 대기" if res["waiting"] else ""
-                        st.success(f"✅ **{res['title']}** 반납 완료{extra}{wait}")
-                    elif isinstance(res, dict) and res.get("need_saban"):
-                        st.info(res["msg"])   # 사번 입력 후 재시도 허용 (ci_last 고정 안 함)
-                    else:
-                        st.session_state["ci_last"] = code
-                        st.error(f"⚠️ {res}")
+                _shot = getattr(img, "file_id", None) or getattr(img, "id", None) or code
+                if code and st.session_state.get("ci_last") != _shot:
+                    st.session_state["ci_last"] = _shot
+                    _stage_scan("ci", code)
                 elif img is not None and not code:
                     st.warning("바코드를 인식하지 못했어요. 다시 촬영해 주세요.")
             else:
                 with st.form("ci_form", clear_on_submit=True):
                     manual = st.text_input("반납할 책 ISBN 바코드")
-                    if st.form_submit_button("반납하기", use_container_width=True):
-                        ok, res = _checkin(manual, ci_saban)
-                        if ok:
-                            extra = " (연체 반납)" if res["overdue"] else ""
-                            wait = f" · 🔔 예약자 {res['waiting']}님 대기" if res["waiting"] else ""
-                            st.success(f"✅ **{res['title']}** 반납 완료{extra}{wait}")
-                        elif isinstance(res, dict) and res.get("need_saban"):
-                            st.info(res["msg"])
-                        else:
-                            st.error(f"⚠️ {res}")
-            st.markdown("<p class='lib-hint'>반납은 보통 책 바코드만 스캔하면 됩니다. 같은 책 여러 권이 동시에 대출 중일 때만 사번을 넣어 주세요.</p>", unsafe_allow_html=True)
+                    _goi = st.form_submit_button("확인 화면으로", use_container_width=True,
+                                                 type="primary")
+                if _goi:
+                    _stage_scan("ci", manual)
+            st.markdown("<p class='lib-hint'>반납은 보통 책 바코드만 스캔하면 됩니다. 같은 책 여러 권이 동시에 "
+                        "대출 중일 때만 사번을 넣어 주세요. 스캔한 뒤에는 <b>한 번 더 확인</b>하고 "
+                        "[네, 반납합니다]를 눌러 주세요.</p>", unsafe_allow_html=True)
 
     # ---------------- 도서 검색 ----------------
     if menu == MENU[2]:
