@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v17 (2026-07-30 · 분류 한글 표시)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v18 (2026-07-30 · 희망도서 켜기·끄기)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -61,6 +61,8 @@ HEADERS = {
     "wishlist":     ["wish_id", "title", "author", "isbn", "saban", "name", "reason", "date", "status"],
     # 같은 안내 메일을 두 번 보내지 않도록 기록해 두는 탭 (자동 생성됩니다)
     "maillog":      ["date", "kind", "key", "to", "result"],
+    # 관리자가 화면에서 켜고 끈 설정을 담아 두는 탭 (자동 생성됩니다)
+    "settings":     ["key", "value"],
 }
 
 # ==========================================================
@@ -177,6 +179,36 @@ def _reset_conn():
     except Exception:
         pass
     _records.clear()
+
+def _setting(key, default=""):
+    """관리자가 화면에서 켜고 끈 설정을 읽는다. (구글 시트 settings 탭)"""
+    try:
+        for r in _records("settings"):
+            if str(r.get("key", "")).strip() == key:
+                return str(r.get("value", "")).strip()
+    except Exception:
+        pass
+    return default
+
+def _set_setting(key, value):
+    """설정을 시트에 적어 둔다. 이미 있으면 고치고, 없으면 새로 한 줄 만든다."""
+    try:
+        ws = _ws("settings")
+        for i, r in enumerate(_records("settings")):
+            if str(r.get("key", "")).strip() == key:
+                _retry(ws.update_cell, i + 2, _col("settings", "value"), str(value))
+                _refresh()
+                return True
+        vals = {"key": key, "value": str(value)}
+        _retry(ws.append_row, [vals.get(h, "") for h in _header("settings")])
+        _refresh()
+        return True
+    except Exception:
+        return False
+
+def _wish_on():
+    """희망도서 신청 화면을 직원들에게 보여줄지 여부. (기본값: 보여줌)"""
+    return _setting("wish_on", "1") != "0"
 
 def _today():
     return datetime.date.today()
@@ -440,9 +472,10 @@ def _run_reminders():
                     "빌려 가신 책의 반납일이 다가왔습니다.\n\n"
                     "  · 도서 : %s\n"
                     "  · 반납 예정일 : %s (%d일 남았습니다)\n\n"
-                    "더 읽고 싶으시면 도서관 화면의 [🙋 내 대출·희망도서] 에서 "
+                    "더 읽고 싶으시면 도서관 화면의 [%s] 에서 "
                     "사번을 넣고 [연장] 을 누르시면 %d일 연장됩니다. "
-                    "(예약 대기자가 있으면 연장되지 않습니다.)") % (name, title, str(due), left, RENEW_DAYS)
+                    "(예약 대기자가 있으면 연장되지 않습니다.)") % (name, title, str(due), left,
+                                                        _menu_label(MENU[3]), RENEW_DAYS)
         elif left < 0:
             over = -left
             kind, key = "over", "%s_%d" % (lid, over // 7)
@@ -775,8 +808,9 @@ def _checkout(isbn, saban, name, email=""):
          "  · 대출일 : %s\n"
          "  · 반납 예정일 : %s (%d일)\n\n"
          "반납일이 다가오면 다시 안내 메일을 보내 드립니다. "
-         "연장은 도서관 화면의 [🙋 내 대출·희망도서] 에서 %d회까지 가능합니다.")
-        % (member["name"], book.get("title", ""), str(loan_date), str(due), LOAN_DAYS, MAX_RENEW))
+         "연장은 도서관 화면의 [%s] 에서 %d회까지 가능합니다.")
+        % (member["name"], book.get("title", ""), str(loan_date), str(due), LOAN_DAYS,
+           _menu_label(MENU[3]), MAX_RENEW))
     return True, {"title": book.get("title", ""), "due": str(due), "name": member["name"],
                   "mailed": mailed, "email": member.get("email", "")}
 
@@ -1087,6 +1121,14 @@ def _qty_text(book):
 
 MENU = ["🏠 홈", "📕 대출·반납", "🔍 도서 검색", "🙋 내 대출·희망도서", "👑 관리자"]
 
+def _menu_label(m):
+    """화면에 보이는 메뉴 이름.
+       희망도서를 꺼 두면 네 번째 메뉴 이름이 '🙋 내 대출 현황'으로 바뀝니다.
+       (프로그램 안에서 쓰는 이름은 그대로라서, 켜고 꺼도 화면이 헷갈리지 않습니다)"""
+    if m == MENU[3] and not _wish_on():
+        return "🙋 내 대출 현황"
+    return m
+
 def _goto_detail(isbn):
     """책 카드의 [자세히] → 책 상세 화면으로."""
     isbn = _norm_isbn(isbn)
@@ -1102,7 +1144,7 @@ def _back_to_list(key):
     where = st.session_state.get("lib_detail_back", "")
     if where not in MENU:
         where = st.session_state.get("lib_menu", MENU[0])
-    label = "◀ %s 화면으로 돌아가기" % where.split(" ", 1)[-1]
+    label = "◀ %s 화면으로 돌아가기" % _menu_label(where).split(" ", 1)[-1]
     if st.columns([1, 2])[0].button(label, key=key, use_container_width=True):
         st.session_state["lib_menu"] = where
         st.session_state.pop("lib_detail", None)
@@ -1590,7 +1632,7 @@ def _run_library():
         menu = MENU[0]
     _mcols = st.columns(len(MENU))
     for _i, _m in enumerate(MENU):
-        if _mcols[_i].button(_m, key=f"lib_nav_{_i}", use_container_width=True,
+        if _mcols[_i].button(_menu_label(_m), key=f"lib_nav_{_i}", use_container_width=True,
                              type=("primary" if _m == menu else "secondary")):
             if _m != menu or st.session_state.get("lib_detail"):
                 st.session_state["lib_menu"] = _m
@@ -1844,7 +1886,10 @@ def _run_library():
         _sec_title("서가 둘러보기", f"총 {len(books)}종")
         shown = books[:60]
         if not shown:
-            st.info("찾으시는 책이 없습니다. 🙋 메뉴에서 '희망도서'로 신청해 보세요.")
+            if _wish_on():
+                st.info("찾으시는 책이 없습니다. 🙋 메뉴에서 '희망도서'로 신청해 보세요.")
+            else:
+                st.info("찾으시는 책이 없습니다.")
         else:
             _shelf([{"book": b} for b in shown], "search")
         if len(books) > len(shown):
@@ -1892,20 +1937,23 @@ def _run_library():
                 else:
                     col2.caption("연장불가")
 
-        _sec_title("희망도서 신청", "읽고 싶은 책을 알려주세요")
-        with st.form("wish_form", clear_on_submit=True):
-            wc1, wc2 = st.columns(2)
-            ws_ = wc1.text_input("사번")
-            wn_ = wc2.text_input("이름")
-            we_ = st.text_input("회사 이메일 (구입 여부를 알려드립니다)",
-                                placeholder="hong@" + MAIL_DOMAIN)
-            wt_ = st.text_input("도서 제목")
-            wa_ = st.text_input("저자 (선택)")
-            wr_ = st.text_area("신청 사유 (선택)", height=70)
-            if st.form_submit_button("신청하기", use_container_width=True):
-                ok, msg = _add_wish(ws_, wn_, wt_, wa_, wr_, we_)
-                (st.success if ok else st.error)(msg)
-        st.caption(f"신청하시면 담당자({WISH_TO})에게 바로 알림 메일이 갑니다.")
+        # 희망도서 접수는 관리자가 켜고 끌 수 있습니다.
+        # (👑 관리자 → 🙋 희망도서 접수 → [보이기] / [감추기])
+        if _wish_on():
+            _sec_title("희망도서 신청", "읽고 싶은 책을 알려주세요")
+            with st.form("wish_form", clear_on_submit=True):
+                wc1, wc2 = st.columns(2)
+                ws_ = wc1.text_input("사번")
+                wn_ = wc2.text_input("이름")
+                we_ = st.text_input("회사 이메일 (구입 여부를 알려드립니다)",
+                                    placeholder="hong@" + MAIL_DOMAIN)
+                wt_ = st.text_input("도서 제목")
+                wa_ = st.text_input("저자 (선택)")
+                wr_ = st.text_area("신청 사유 (선택)", height=70)
+                if st.form_submit_button("신청하기", use_container_width=True):
+                    ok, msg = _add_wish(ws_, wn_, wt_, wa_, wr_, we_)
+                    (st.success if ok else st.error)(msg)
+            st.caption(f"신청하시면 담당자({WISH_TO})에게 바로 알림 메일이 갑니다.")
 
     # ---------------- 관리자 ----------------
     if menu == MENU[4]:
@@ -2061,6 +2109,35 @@ def _run_library():
                 else:
                     st.success("모든 책에 소개가 들어 있습니다.")
 
+            with st.expander("🙋 희망도서 접수  (직원 화면에 보이기 / 감추기)"):
+                _won = _wish_on()
+                if _won:
+                    st.success("지금은 **보이는 중**입니다. "
+                               "직원 화면의 네 번째 메뉴 이름은 **🙋 내 대출·희망도서** 입니다.")
+                else:
+                    st.warning("지금은 **감춰져 있습니다.** "
+                               "직원 화면의 네 번째 메뉴 이름은 **🙋 내 대출 현황** 이고, "
+                               "희망도서 신청 칸은 보이지 않습니다.")
+                st.caption("· 보이기 : 직원이 읽고 싶은 책을 신청할 수 있습니다. "
+                           "신청되면 담당자(%s)에게 메일이 갑니다.\n"
+                           "· 감추기 : 신청 칸이 사라지고, 메뉴 이름이 '내 대출 현황'으로 바뀝니다. "
+                           "이미 접수된 신청 내용은 지워지지 않고 아래 목록에 그대로 남습니다." % WISH_TO)
+                _wc1, _wc2 = st.columns(2)
+                if _wc1.button("👀 보이기", key="wish_on_btn", use_container_width=True,
+                               type=("secondary" if _won else "primary"), disabled=_won):
+                    if _set_setting("wish_on", "1"):
+                        st.success("희망도서 신청 화면을 켰습니다."); st.rerun()
+                    else:
+                        st.error("설정을 저장하지 못했습니다. 구글 시트 공유 권한을 확인해 주세요.")
+                if _wc2.button("🙈 감추기", key="wish_off_btn", use_container_width=True,
+                               type=("primary" if _won else "secondary"), disabled=not _won):
+                    if _set_setting("wish_on", "0"):
+                        st.success("희망도서 신청 화면을 감췄습니다."); st.rerun()
+                    else:
+                        st.error("설정을 저장하지 못했습니다. 구글 시트 공유 권한을 확인해 주세요.")
+                st.caption("이 설정은 구글 시트 `settings` 탭에 저장되어, "
+                           "앱을 다시 켜도 그대로 유지됩니다. 모든 직원에게 똑같이 적용됩니다.")
+
             with st.expander("📧 이메일 알림 설정"):
                 _cfg = _mail_cfg()
                 if _cfg:
@@ -2198,6 +2275,9 @@ def _run_library():
                     st.info("대출 중인 도서가 없습니다.")
 
             with st.expander(f"🙋 희망도서 신청 ({len(wishes)})"):
+                if not _wish_on():
+                    st.caption("※ 지금은 직원 화면에서 희망도서 접수를 감춰 두었습니다. "
+                               "지난 신청 내역은 아래에 그대로 남아 있습니다.")
                 allw = list(reversed(_records("wishlist")))
                 if not allw:
                     st.info("신청 내역이 없습니다.")
