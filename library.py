@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v16 (2026-07-30 · 대출·반납 최종 확인)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v17 (2026-07-30 · 분류 한글 표시)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -1229,6 +1229,25 @@ def _next_due_text(isbn):
             dues.append(d)
     return sorted(dues)[0] if dues else ""
 
+# 국립중앙도서관에서 받아 오는 '분류'는 한국십진분류(KDC)의 숫자입니다.
+# 숫자만 보면 무슨 뜻인지 알 수 없어서, 화면에는 한글 이름으로 바꿔 보여줍니다.
+KDC_NAME = {"0": "총류", "1": "철학", "2": "종교", "3": "사회과학", "4": "자연과학",
+            "5": "기술과학", "6": "예술", "7": "언어", "8": "문학", "9": "역사"}
+
+def _cat_text(v):
+    """분류 값을 사람이 읽을 수 있게 바꾼다.
+       '3' → '사회과학' / '325.1' → '사회과학 (325.1)' / '경영' → '경영' (그대로)"""
+    raw = str(v or "").strip()
+    if not raw:
+        return ""
+    core = raw.replace(".", "").replace(" ", "")
+    if not core.isdigit():
+        return raw          # 관리자가 직접 적은 글자는 손대지 않습니다.
+    name = KDC_NAME.get(core[0], "")
+    if not name:
+        return raw
+    return name if len(core) == 1 else "%s (%s)" % (name, raw)
+
 def _book_summary_text(book):
     """책 소개 글. 시트에 없으면 빈 문자열."""
     return str((book or {}).get("summary", "") or "").strip()
@@ -1291,7 +1310,7 @@ def _detail_page(isbn):
         rows = [("저자", _clean_author(b.get("author")) or "-"),
                 ("출판사", str(b.get("publisher", "") or "-")),
                 ("출판연도", str(b.get("year", "") or "-")),
-                ("분류", str(b.get("category", "") or "-")),
+                ("분류", _cat_text(b.get("category")) or "-"),
                 ("책 위치", str(b.get("location", "") or "-")),
                 ("ISBN", str(b.get("isbn", "") or "-"))]
         info = "".join(f"<tr><th>{_esc(k)}</th><td>{_esc(v)}</td></tr>" for k, v in rows)
@@ -1819,7 +1838,8 @@ def _run_library():
         ql = q.strip().lower()
         if ql:
             books = [b for b in books if any(
-                ql in str(b.get(k, "")).lower() for k in ["title", "author", "isbn", "category", "publisher"])]
+                ql in str(b.get(k, "")).lower() for k in ["title", "author", "isbn", "category", "publisher"])
+                or ql in _cat_text(b.get("category")).lower()]
         books = sorted(books, key=lambda b: str(b.get("title", "")))
         _sec_title("서가 둘러보기", f"총 {len(books)}종")
         shown = books[:60]
@@ -1985,6 +2005,8 @@ def _run_library():
                     if info:
                         for k in ["title", "author", "publisher", "year", "category", "cover"]:
                             st.session_state[f"reg_{k}"] = info.get(k, "")
+                        # 분류는 숫자로 오기 때문에 한글 이름으로 바꿔서 넣어 둡니다.
+                        st.session_state["reg_category"] = _cat_text(info.get("category", ""))
                         st.success("제목·저자·표지를 불러왔습니다. 확인 후 등록하세요.")
                     else:
                         st.warning(err or "도서 정보를 찾지 못했습니다. 직접 입력해 주세요.")
@@ -1995,7 +2017,10 @@ def _run_library():
                     publisher = bc2.text_input("출판사", value=st.session_state.get("reg_publisher", ""))
                     bc3, bc4 = st.columns(2)
                     year = bc3.text_input("출판연도", value=st.session_state.get("reg_year", ""))
-                    category = bc4.text_input("분류", value=st.session_state.get("reg_category", ""))
+                    category = bc4.text_input("분류 (책의 갈래)",
+                                              value=st.session_state.get("reg_category", ""),
+                                              help="ISBN 조회를 하면 자동으로 채워집니다. "
+                                                   "원하시는 말로 바꿔 적으셔도 됩니다. (예: 경영, 자기계발)")
                     bc5, bc6 = st.columns(2)
                     location = bc5.text_input("위치 (예: A-3)")
                     qty = bc6.number_input("수량(권수)", min_value=1, value=1, step=1)
