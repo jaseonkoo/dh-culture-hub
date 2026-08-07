@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v18 (2026-07-30 · 희망도서 켜기·끄기)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v19 (2026-07-30 · 내 대출 조회 버튼)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -1915,7 +1915,18 @@ def _run_library():
     # ---------------- 내 대출 / 희망도서 ----------------
     if menu == MENU[3]:
         _sec_title("내 대출 현황", "사번으로 조회")
-        msaban = st.text_input("사번으로 조회", key="my_saban", placeholder="사번 입력")
+        st.caption("사번을 입력하고 **엔터**를 누르시면 바로 조회됩니다. "
+                   "(오른쪽 [🔍 조회] 버튼을 눌러도 됩니다)")
+        # 폼 상자 안에 넣어 두면 엔터만 쳐도 조회됩니다.
+        with st.form("my_loan_form", clear_on_submit=False):
+            mq1, mq2 = st.columns(2)
+            mq1.text_input("사번", key="my_saban",
+                           placeholder="사번을 입력하고 엔터를 누르세요")
+            # 오른쪽 버튼을 왼쪽 입력칸과 같은 높이에 맞추기 위한 빈 자리입니다.
+            mq2.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            mq2.form_submit_button("🔍 조회", use_container_width=True, type="primary")
+
+        msaban = str(st.session_state.get("my_saban", "") or "")
         if msaban.strip():
             mine = [l for l in _records("loans")
                     if str(l.get("saban")).strip() == msaban.strip() and l.get("status") == "대출중"]
