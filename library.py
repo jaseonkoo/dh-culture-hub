@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v25 (2026-07-30 · 목록 정리)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v26 (2026-07-30 · 버튼 폭 맞춤)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -1289,6 +1289,15 @@ def _set_book_cover(isbn, url):
         pass
     return False
 
+def _btn_box(key):
+    """책 아래 버튼들을 담을 상자. 상자에 이름표를 붙여 두면
+       화면 꾸미기(CSS)에서 그 상자만 골라 좁힐 수 있습니다.
+       (이름표를 못 붙이는 옛 버전에서도 그냥 동작하도록 감싸 두었습니다)"""
+    try:
+        return st.container(key="libbtn_%s" % key)
+    except Exception:
+        return st.container()
+
 def _shelf_item(it, key):
     """책장 한 칸: 표지 + 제목 + 상태 + (대출가능일 때) 대출 버튼."""
     b = it.get("book") or None
@@ -1315,16 +1324,18 @@ def _shelf_item(it, key):
         unsafe_allow_html=True)
 
     isbn = _norm_isbn((b or {}).get("isbn", ""))
-    if label == "대출가능":
-        bc1, bc2 = st.columns(2)
-        if bc1.button("자세히", key=f"dt_{key}", use_container_width=True):
-            _goto_detail(isbn)
-        if bc2.button("빌리기", key=f"go_{key}", use_container_width=True, type="primary"):
-            _goto_lend(b)
-    else:
-        if st.button("자세히", key=f"dt_{key}", use_container_width=True, disabled=not isbn):
-            _goto_detail(isbn)
-        st.markdown("<div class='lib-btn-off'>대출 불가</div>", unsafe_allow_html=True)
+    # 버튼들을 이름표(libbtn) 붙은 상자에 담아 두고, 그 상자만 표지 너비로 좁힙니다.
+    with _btn_box(key):
+        if label == "대출가능":
+            bc1, bc2 = st.columns(2)
+            if bc1.button("자세히", key=f"dt_{key}", use_container_width=True):
+                _goto_detail(isbn)
+            if bc2.button("빌리기", key=f"go_{key}", use_container_width=True, type="primary"):
+                _goto_lend(b)
+        else:
+            if st.button("자세히", key=f"dt_{key}", use_container_width=True, disabled=not isbn):
+                _goto_detail(isbn)
+            st.markdown("<div class='lib-btn-off'>대출 불가</div>", unsafe_allow_html=True)
 
 PER_ROW = 7      # 👈 한 줄에 몇 권씩 보여줄지. 숫자만 바꾸면 됩니다.
 
@@ -1587,20 +1598,22 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 .lib-ask .lib-tb th { width:96px; color:#7A5518; }
 
 /* ---------- 책 아래 버튼([자세히]·[빌리기])을 표지 너비에 맞춘다 ----------
-   책 카드(.lib-bk) 바로 다음에 오는 버튼 줄만 좁혀 줍니다.
-   (메뉴 버튼 등 다른 버튼은 건드리지 않습니다) */
-[data-testid="stElementContainer"]:has(.lib-bk) + [data-testid="stHorizontalBlock"],
-.element-container:has(.lib-bk) + [data-testid="stHorizontalBlock"],
-[data-testid="stElementContainer"]:has(.lib-bk) + [data-testid="stElementContainer"],
-.element-container:has(.lib-bk) + .element-container {
+   버튼을 담아 둔 상자(libbtn)만 골라서 좁힙니다. */
+[class*="st-key-libbtn_"] {
+  max-width:var(--lib-cvw) !important;
+  margin-left:auto !important; margin-right:auto !important;
+}
+[class*="st-key-libbtn_"] [data-testid="stColumn"],
+[class*="st-key-libbtn_"] [data-testid="column"] { min-width:0 !important; }
+[class*="st-key-libbtn_"] [data-testid="stHorizontalBlock"] { gap:6px !important; }
+[class*="st-key-libbtn_"] button {
+  padding-left:4px !important; padding-right:4px !important;
+  font-size:.82rem !important; min-height:34px;
+}
+/* 위 방법이 안 통하는 옛 버전을 위한 예비 방법 */
+[data-testid="stElementContainer"]:has(.lib-bk) ~ [data-testid="stHorizontalBlock"],
+.element-container:has(.lib-bk) ~ [data-testid="stHorizontalBlock"] {
   max-width:var(--lib-cvw); margin-left:auto; margin-right:auto;
-}
-[data-testid="stElementContainer"]:has(.lib-bk) + [data-testid="stHorizontalBlock"] [data-testid="stColumn"],
-.element-container:has(.lib-bk) + [data-testid="stHorizontalBlock"] [data-testid="stColumn"] {
-  min-width:0;
-}
-[data-testid="stElementContainer"]:has(.lib-bk) + * button {
-  padding-left:4px; padding-right:4px; font-size:.82rem;
 }
 
 /* ---------- 구역 제목 ---------- */
@@ -2614,7 +2627,8 @@ def _run_library():
                         else:
                             st.error("열을 만들지 못했습니다. 구글 시트 공유 권한을 확인해 주세요.")
 
-            st.caption("프로그램 버전 : %s" % LIB_VER)
+            st.caption("프로그램 버전 : %s  ·  스트림릿 %s"
+                       % (LIB_VER, getattr(st, "__version__", "?")))
 
             with st.expander("👤 회원 등록"):
                 with st.form("member_form", clear_on_submit=True):
