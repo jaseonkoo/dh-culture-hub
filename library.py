@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v24 (2026-07-30 · 연속 등록 화면)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v25 (2026-07-30 · 목록 정리)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -1295,15 +1295,14 @@ def _shelf_item(it, key):
     title = str((b or {}).get("title", "") or it.get("fallback", "") or "제목 없음")
     author_raw = str((b or {}).get("author", "") or "")
     author = _clean_author(author_raw)
-    loc = str((b or {}).get("location", "") or "")
     label = _book_avail_label(b)
     cls = _ST_CLASS.get(label, "off")
     rank = it.get("rank")
     cnt = it.get("count")
 
     rank_html = f"<div class='lib-rank'>{rank}</div>" if rank else ""
-    qty = _qty_text(b) if b else ""
-    meta2 = " · ".join([x for x in [loc and f"위치 {loc}", qty] if x])
+    # 책 위치는 목록에 넣지 않습니다. (책 자세히 보기 화면에서 볼 수 있습니다)
+    meta2 = _qty_text(b) if b else ""
     cnt_html = f"<div class='lib-cnt'>누적 대출 {cnt}회</div>" if cnt else ""
 
     st.markdown(
@@ -1587,6 +1586,23 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 .lib-ask-f { margin-top:10px; font-size:.86rem; color:#7A5518; }
 .lib-ask .lib-tb th { width:96px; color:#7A5518; }
 
+/* ---------- 책 아래 버튼([자세히]·[빌리기])을 표지 너비에 맞춘다 ----------
+   책 카드(.lib-bk) 바로 다음에 오는 버튼 줄만 좁혀 줍니다.
+   (메뉴 버튼 등 다른 버튼은 건드리지 않습니다) */
+[data-testid="stElementContainer"]:has(.lib-bk) + [data-testid="stHorizontalBlock"],
+.element-container:has(.lib-bk) + [data-testid="stHorizontalBlock"],
+[data-testid="stElementContainer"]:has(.lib-bk) + [data-testid="stElementContainer"],
+.element-container:has(.lib-bk) + .element-container {
+  max-width:var(--lib-cvw); margin-left:auto; margin-right:auto;
+}
+[data-testid="stElementContainer"]:has(.lib-bk) + [data-testid="stHorizontalBlock"] [data-testid="stColumn"],
+.element-container:has(.lib-bk) + [data-testid="stHorizontalBlock"] [data-testid="stColumn"] {
+  min-width:0;
+}
+[data-testid="stElementContainer"]:has(.lib-bk) + * button {
+  padding-left:4px; padding-right:4px; font-size:.82rem;
+}
+
 /* ---------- 구역 제목 ---------- */
 .lib-sec { display:flex; align-items:baseline; gap:12px; margin:26px 0 14px;
   border-bottom:1px solid #E0D6C3; padding-bottom:8px; }
@@ -1596,7 +1612,9 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 
 /* ---------- 책 한 칸 ---------- */
 .lib-bk { position:relative; padding:2px 2px 6px; text-align:center; }
-.lib-cv { position:relative; width:100%; max-width:150px; margin:0 auto;
+/* 표지 너비. 아래 버튼 폭도 이 값에 맞춰집니다. */
+:root { --lib-cvw: 150px; }
+.lib-cv { position:relative; width:100%; max-width:var(--lib-cvw); margin:0 auto;
   aspect-ratio:3/4; border-radius:2px 7px 7px 2px; overflow:hidden;
   background:#F1E9D9; border:1px solid #DCCFB6;
   box-shadow:0 12px 16px -12px rgba(43,38,32,.65), 0 2px 3px rgba(43,38,32,.14);
@@ -1639,7 +1657,8 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
   box-shadow:0 3px 6px rgba(43,38,32,.35); border:1px solid #8C6320; }
 
 .lib-btn-off { text-align:center; font-size:.82rem; color:#A79A85; border:1px dashed #DCCFB6;
-  border-radius:6px; padding:7px 0; background:rgba(255,255,255,.4); }
+  border-radius:6px; padding:7px 0; background:rgba(255,255,255,.4);
+  max-width:var(--lib-cvw); margin:6px auto 0; }
 
 /* ---------- 책 상세 화면 ---------- */
 .lib-bk-big { text-align:center; }
