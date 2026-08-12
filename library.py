@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v20 (2026-07-30 · 책 표지 고치기)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v21 (2026-07-30 · 표지 버튼 오류 수정)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -2209,28 +2209,41 @@ def _run_library():
                                     % _cover_html(_cvb1, _cvb1.get("title", "")),
                                     unsafe_allow_html=True)
                     with _k2:
-                        _cvkey = "cv_url_%s" % _norm_isbn(_cvisbn)
-                        if _cvkey not in st.session_state:
-                            st.session_state[_cvkey] = str(_cvb1.get("cover", "") or "")
-                        st.text_input("표지 그림 주소", key=_cvkey,
-                                      placeholder="https:// 로 시작하는 그림 주소")
+                        # 스트림릿은 '이미 그려진 입력칸'의 내용을 프로그램이 나중에
+                        # 바꾸는 것을 막습니다. 그래서 버튼으로 주소를 채워 넣을 때는
+                        # 입력칸 이름표(key)를 새것으로 바꿔 다시 그립니다.
+                        _cvseed = _to_int(st.session_state.get("cv_seed"), 0)
+                        _cvsame = st.session_state.get("cv_buf_for") == _cvisbn
+                        _cvstart = (st.session_state.get("cv_buf", "") if _cvsame
+                                    else str(_cvb1.get("cover", "") or ""))
+                        _cvkey = "cv_url_%s_%d" % (_norm_isbn(_cvisbn), _cvseed)
+                        _cvurl = st.text_input("표지 그림 주소", value=_cvstart, key=_cvkey,
+                                               placeholder="https:// 로 시작하는 그림 주소")
+
+                        def _cv_put(val):
+                            """입력칸을 새로 그려서 주소를 채워 넣는다."""
+                            st.session_state["cv_buf"] = val
+                            st.session_state["cv_buf_for"] = _cvisbn
+                            st.session_state["cv_seed"] = _cvseed + 1
+
                         _z1, _z2, _z3 = st.columns(3)
                         if _z1.button("🖼️ 교보문고 표지", key="cv_kyobo", use_container_width=True):
                             _kk = _kyobo_cover(_cvisbn)
                             if _kk:
-                                st.session_state[_cvkey] = _kk
+                                _cv_put(_kk)
                                 st.rerun()
                             else:
                                 st.warning("ISBN이 13자리가 아니라 교보문고 주소를 만들 수 없습니다.")
                         if _z2.button("💾 저장", key="cv_save", use_container_width=True,
                                       type="primary"):
-                            if _set_book_cover(_cvisbn, st.session_state.get(_cvkey, "")):
+                            if _set_book_cover(_cvisbn, _cvurl):
+                                _cv_put(_fix_cover_url(_cvurl))
                                 st.success("표지를 저장했습니다."); st.rerun()
                             else:
                                 st.error("저장하지 못했습니다. 구글 시트 공유 권한을 확인해 주세요.")
                         if _z3.button("🧹 비우기", key="cv_clear", use_container_width=True):
-                            st.session_state[_cvkey] = ""
                             _set_book_cover(_cvisbn, "")
+                            _cv_put("")
                             st.rerun()
                         st.caption("주소를 넣고 **저장**을 누른 뒤, 왼쪽 그림이 표지로 바뀌는지 보세요. "
                                    "그대로 책등 모양이면 그 주소로는 그림이 열리지 않는 것입니다.")
