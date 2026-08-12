@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v22 (2026-07-30 · 표지 자동 찾기 · 한 줄 7권)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v23 (2026-07-30 · 서가 둘러보기 필터)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -1342,6 +1342,15 @@ def _shelf(items, keyprefix, per_row=PER_ROW):
                     _shelf_item(chunk[j], f"{keyprefix}_{start + j}")
         st.markdown("<div class='lib-plank'></div>", unsafe_allow_html=True)
 
+def _loan_counts():
+    """책(ISBN)마다 지금까지 몇 번 빌려 갔는지 세어 둔다."""
+    out = {}
+    for l in _records("loans"):
+        k = _norm_isbn(l.get("isbn"))
+        if k:
+            out[k] = out.get(k, 0) + 1
+    return out
+
 def _next_due_text(isbn):
     """대출 중인 이 책이 언제 돌아오는지(가장 빠른 반납예정일)."""
     isbn = _norm_isbn(isbn)
@@ -1974,19 +1983,71 @@ def _run_library():
             books = [b for b in books if any(
                 ql in str(b.get(k, "")).lower() for k in ["title", "author", "isbn", "category", "publisher"])
                 or ql in _cat_text(b.get("category")).lower()]
-        books = sorted(books, key=lambda b: str(b.get("title", "")))
-        _sec_title("서가 둘러보기", f"총 {len(books)}종")
-        shown = books[:60]
+        # ----- 서가를 어떤 순서로 둘러볼지 고르는 곳 -----
+        VIEWS = ["📚 전체 보기", "🏷️ 분류별 보기", "📅 출판연도순", "🔥 많이 빌린 순"]
+        view = st.radio("어떻게 볼까요?", VIEWS, horizontal=True, key="lib_view")
+
+        counts = _loan_counts()          # 책마다 몇 번 빌려 갔는지
+        sub = "총 %d종" % len(books)
+        items = []
+
+        if view == VIEWS[1]:
+            # 분류별 : 같은 갈래끼리 모아서 봅니다.
+            groups = {}
+            for b in books:
+                groups.setdefault(_cat_text(b.get("category")) or "분류 없음", []).append(b)
+            names = sorted(groups.keys(), key=lambda n: (n == "분류 없음", n))
+            opts = ["전체 (%d종)" % len(books)] + ["%s (%d종)" % (n, len(groups[n])) for n in names]
+            pick = st.selectbox("분류 고르기", opts, key="lib_cat")
+            if pick != opts[0] and pick in opts:
+                _one = names[opts.index(pick) - 1]
+                books = groups[_one]
+                sub = "%s · %d종" % (_one, len(books))
+            books = sorted(books, key=lambda b: ((_cat_text(b.get("category")) or "힣"),
+                                                 str(b.get("title", ""))))
+
+        elif view == VIEWS[2]:
+            # 출판연도순 : 최신 책부터 (연도가 비어 있는 책은 맨 뒤로)
+            _neworder = st.selectbox("순서", ["최신 책부터", "오래된 책부터"], key="lib_year_order")
+            _new_first = (_neworder == "최신 책부터")
+            _has = [b for b in books if _to_int(b.get("year")) > 0]
+            _none = sorted([b for b in books if _to_int(b.get("year")) <= 0],
+                           key=lambda b: str(b.get("title", "")))
+            _has = sorted(_has, key=lambda b: (_to_int(b.get("year")), str(b.get("title", ""))),
+                          reverse=_new_first)
+            books = _has + _none
+            sub = "%s · 총 %d종" % (_neworder, len(books))
+
+        elif view == VIEWS[3]:
+            # 많이 빌린 순 : 대출 기록이 많은 책부터, 순위 번호도 붙여 줍니다.
+            books = sorted(books, key=lambda b: (-counts.get(_norm_isbn(b.get("isbn")), 0),
+                                                 str(b.get("title", ""))))
+            sub = "누적 대출이 많은 순 · 총 %d종" % len(books)
+
+        else:
+            books = sorted(books, key=lambda b: str(b.get("title", "")))
+
+        _sec_title("서가 둘러보기", sub)
+        shown = books[:63]
+        for i, b in enumerate(shown):
+            it = {"book": b}
+            if view == VIEWS[3]:
+                _c = counts.get(_norm_isbn(b.get("isbn")), 0)
+                if _c:
+                    it["rank"] = i + 1
+                    it["count"] = _c
+            items.append(it)
+
         if not shown:
             if _wish_on():
                 st.info("찾으시는 책이 없습니다. 🙋 메뉴에서 '희망도서'로 신청해 보세요.")
             else:
                 st.info("찾으시는 책이 없습니다.")
         else:
-            _shelf([{"book": b} for b in shown], "search")
+            _shelf(items, "search")
         if len(books) > len(shown):
             st.markdown(f"<p class='lib-hint'>{len(books) - len(shown)}종이 더 있습니다. "
-                        f"검색어를 넣어 좁혀 주세요.</p>", unsafe_allow_html=True)
+                        f"검색어를 넣거나 분류를 골라 좁혀 주세요.</p>", unsafe_allow_html=True)
 
         out_books = [b for b in books if _to_int(b.get("available_qty")) <= 0]
         if out_books:
