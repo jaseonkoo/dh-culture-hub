@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v21 (2026-07-30 · 표지 버튼 오류 수정)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v22 (2026-07-30 · 표지 자동 찾기 · 한 줄 7권)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -1042,6 +1042,48 @@ def _lookup_google(isbn):
     except Exception:
         return None
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _img_ok(url):
+    """그 주소로 그림이 실제로 열리는지 확인한다.
+       확인할 수 없을 때(인터넷 차단 등)는 '열린다'고 보고 넘어갑니다."""
+    u = str(url or "").strip()
+    if not u:
+        return False
+    try:
+        req = urllib.request.Request(u, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=4) as r:
+            code = getattr(r, "status", 200) or 200
+            ctype = str(r.headers.get("Content-Type", "")).lower()
+            clen = _to_int(r.headers.get("Content-Length", 0), 0)
+        if code >= 400:
+            return False
+        if ctype and not ctype.startswith("image"):
+            return False          # 그림이 아니라 '없는 페이지'가 온 경우
+        if clen and clen < 900:
+            return False          # 1KB도 안 되면 '표지 없음' 안내 그림일 때가 많습니다
+        return True
+    except Exception:
+        return True
+
+def _pick_cover(isbn, nl_url=""):
+    """표지 그림을 정해진 순서대로 찾는다.
+       ① 국립중앙도서관  ② 교보문고  ③ 구글
+       반환 : (그림 주소, 어디서 가져왔는지)"""
+    nl = _fix_cover_url(nl_url)
+    if nl and _img_ok(nl):
+        return nl, "국립중앙도서관"
+    kb = _kyobo_cover(isbn)
+    if kb and _img_ok(kb):
+        return kb, "교보문고"
+    gg = _fix_cover_url((_lookup_google(isbn) or {}).get("cover", ""))
+    if gg and _img_ok(gg):
+        return gg, "구글"
+    # 셋 다 확인이 안 되면, 그래도 주소가 있는 것 중 앞선 것을 씁니다.
+    for cand, src in ((nl, "국립중앙도서관"), (kb, "교보문고"), (gg, "구글")):
+        if cand:
+            return cand, src
+    return "", ""
+
 def _lookup_isbn(isbn):
     """반환값: (정보 dict 또는 None, 안내 메시지 또는 None)"""
     isbn = "".join(ch for ch in str(isbn) if ch.isdigit() or ch in "Xx")
@@ -1051,12 +1093,12 @@ def _lookup_isbn(isbn):
     if key:
         info = _lookup_nl(isbn, key)
         if info:
-            if not str(info.get("cover", "")).strip():
-                g = _lookup_google(isbn) or {}
-                info["cover"] = g.get("cover", "")
+            # 표지는 ① 국립중앙도서관 → ② 교보문고 → ③ 구글 순서로 찾습니다.
+            info["cover"], info["cover_src"] = _pick_cover(isbn, info.get("cover", ""))
             return info, None
     info = _lookup_google(isbn)
     if info:
+        info["cover"], info["cover_src"] = _pick_cover(isbn, "")
         return info, None
     if not key:
         return None, "국립중앙도서관 인증키가 설정되어 있지 않습니다. 앱 설정의 Secrets에 [nl] cert_key 를 추가해 주세요."
@@ -1285,7 +1327,9 @@ def _shelf_item(it, key):
             _goto_detail(isbn)
         st.markdown("<div class='lib-btn-off'>대출 불가</div>", unsafe_allow_html=True)
 
-def _shelf(items, keyprefix, per_row=4):
+PER_ROW = 7      # 👈 한 줄에 몇 권씩 보여줄지. 숫자만 바꾸면 됩니다.
+
+def _shelf(items, keyprefix, per_row=PER_ROW):
     """책장처럼 한 줄에 여러 권 + 아래에 나무 선반."""
     if not items:
         return
@@ -1524,7 +1568,7 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 
 /* ---------- 책 한 칸 ---------- */
 .lib-bk { position:relative; padding:2px 2px 6px; text-align:center; }
-.lib-cv { position:relative; width:100%; max-width:170px; margin:0 auto;
+.lib-cv { position:relative; width:100%; max-width:150px; margin:0 auto;
   aspect-ratio:3/4; border-radius:2px 7px 7px 2px; overflow:hidden;
   background:#F1E9D9; border:1px solid #DCCFB6;
   box-shadow:0 12px 16px -12px rgba(43,38,32,.65), 0 2px 3px rgba(43,38,32,.14);
@@ -1543,12 +1587,12 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
   background:linear-gradient(90deg, rgba(0,0,0,.30), rgba(0,0,0,.05) 62%, rgba(255,255,255,.20)); }
 .lib-cv-none { display:flex; flex-direction:column; justify-content:space-between; padding:16px 12px 12px 18px;
   background:linear-gradient(135deg,#2E5B4A 0%, #1F4A3C 60%, #17392E 100%); }
-.lib-cv-txt { font-family:'Nanum Myeongjo',serif; font-weight:700; font-size:.92rem; line-height:1.45;
+.lib-cv-txt { font-family:'Nanum Myeongjo',serif; font-weight:700; font-size:.82rem; line-height:1.4;
   color:#F3EAD6; }
 .lib-cv-emb { font-family:'Nanum Myeongjo',serif; font-size:.62rem; line-height:1.35; text-align:right;
   color:#C9A96A; letter-spacing:.12em; }
 
-.lib-tt { font-weight:700; font-size:.95rem; line-height:1.45;
+.lib-tt { font-weight:700; font-size:.88rem; line-height:1.45;
   margin:12px 0 4px; color:#241F19; min-height:2.9em; letter-spacing:-.01em;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
 .lib-au { font-size:.82rem; color:#6B6154; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -1700,7 +1744,7 @@ def _run_library():
         home_loans = _records("loans")
 
         _sec_title("새로 들어온 책", "신착 도서")
-        recent = list(reversed(home_books))[:8]
+        recent = list(reversed(home_books))[:PER_ROW * 2]
         if not recent:
             st.info("아직 등록된 도서가 없습니다. 👑 관리자 메뉴에서 도서를 등록해 주세요.")
         else:
@@ -2114,12 +2158,16 @@ def _run_library():
                             st.session_state[f"reg_{k}"] = info.get(k, "")
                         # 분류는 숫자로 오기 때문에 한글 이름으로 바꿔서 넣어 둡니다.
                         st.session_state["reg_category"] = _cat_text(info.get("category", ""))
-                        # 표지를 못 받아 왔으면 교보문고 표지 주소를 대신 넣어 둡니다.
-                        if not _fix_cover_url(st.session_state.get("reg_cover", "")):
-                            st.session_state["reg_cover"] = _kyobo_cover(isbn_in)
-                        st.success("제목·저자·표지를 불러왔습니다. 확인 후 등록하세요.")
+                        _src = str(info.get("cover_src", "") or "")
+                        if _src:
+                            st.success("제목·저자를 불러왔습니다. "
+                                       "표지는 **%s** 에서 가져왔습니다. 확인 후 등록하세요." % _src)
+                        else:
+                            st.success("제목·저자를 불러왔습니다. "
+                                       "표지 그림은 찾지 못했습니다. 확인 후 등록하세요.")
                     else:
-                        st.session_state["reg_cover"] = _kyobo_cover(isbn_in)
+                        _kb, _ = _pick_cover(isbn_in, "")
+                        st.session_state["reg_cover"] = _kb
                         st.warning(err or "도서 정보를 찾지 못했습니다. 직접 입력해 주세요.")
 
                 # ----- 표지 그림 확인 -----
@@ -2135,19 +2183,22 @@ def _run_library():
                     if _cv_now:
                         st.caption("👈 위 그림이 **책 표지**로 보이면 정상입니다. "
                                    "초록색 책등 모양이 보이면 그 주소로는 그림이 열리지 않는 것이니, "
-                                   "아래 [교보문고 표지 넣기]를 눌러 보시거나 주소를 직접 넣어 주세요.")
+                                   "아래 [표지 자동 찾기]를 눌러 보시거나 주소를 직접 넣어 주세요.")
                     else:
                         st.caption("👈 아직 표지 그림이 없습니다. "
-                                   "아래 [교보문고 표지 넣기]를 눌러 보세요.")
+                                   "아래 [표지 자동 찾기]를 눌러 보세요.")
                     kb1, kb2 = st.columns(2)
-                    if kb1.button("🖼️ 교보문고 표지 넣기", key="reg_kyobo",
-                                  use_container_width=True):
-                        _k = _kyobo_cover(isbn_in)
+                    if kb1.button("🔎 표지 자동 찾기", key="reg_kyobo",
+                                  use_container_width=True,
+                                  help="국립중앙도서관 → 교보문고 → 구글 순서로 찾습니다."):
+                        with st.spinner("표지를 찾는 중입니다..."):
+                            _k, _ksrc = _pick_cover(isbn_in, "")
                         if _k:
                             st.session_state["reg_cover"] = _k
                             st.rerun()
                         else:
-                            st.warning("ISBN 13자리를 먼저 넣어 주세요.")
+                            st.warning("표지 그림을 찾지 못했습니다. "
+                                       "ISBN을 확인하시거나 주소를 직접 넣어 주세요.")
                     if kb2.button("🧹 표지 비우기", key="reg_nocover", use_container_width=True):
                         st.session_state["reg_cover"] = ""
                         st.rerun()
@@ -2188,18 +2239,23 @@ def _run_library():
                 st.caption("표지 그림이 안 나오는 책을 여기서 고칠 수 있습니다. "
                            "책을 고르면 왼쪽에 지금 표지가 보입니다. "
                            "**초록색 책등 모양**이 보이면 그림이 열리지 않는다는 뜻입니다.")
-                _cvb = [b for b in live_books]
-                if not _cvb:
+                _nocv = [b for b in live_books if not _fix_cover_url(b.get("cover"))]
+                _cvall = st.checkbox("표지가 있는 책도 함께 보기", key="cv_showall",
+                                     help="표지를 이미 넣었지만 그림이 안 나오는 책을 고칠 때 켜 주세요.")
+                _cvb = live_books if _cvall else _nocv
+                if not live_books:
                     st.info("등록된 도서가 없습니다.")
+                elif not _cvb:
+                    st.success("표지가 없는 책이 없습니다. 모든 책에 표지가 들어 있습니다.")
                 else:
-                    _nocv = [b for b in _cvb if not _fix_cover_url(b.get("cover"))]
                     if _nocv:
-                        st.warning("표지 주소가 없는 책이 **%d종** 있습니다." % len(_nocv))
+                        st.warning("표지가 없는 책이 **%d종** 있습니다." % len(_nocv))
                     _cvopt = {}
                     for b in _cvb:
                         mark = "  ⬜" if not _fix_cover_url(b.get("cover")) else ""
                         _cvopt["%s (%s)%s" % (b.get("title"), b.get("isbn"), mark)] = b
-                    _cvpick = st.selectbox("책 고르기  (⬜ 표시는 표지가 없는 책)",
+                    _cvpick = st.selectbox("표지가 없는 책  (⬜ 표시)" if not _cvall
+                                           else "책 고르기  (⬜ 표시는 표지가 없는 책)",
                                            list(_cvopt.keys()), key="cv_pick")
                     _cvb1 = _cvopt.get(_cvpick) or {}
                     _cvisbn = str(_cvb1.get("isbn", ""))
@@ -2227,13 +2283,15 @@ def _run_library():
                             st.session_state["cv_seed"] = _cvseed + 1
 
                         _z1, _z2, _z3 = st.columns(3)
-                        if _z1.button("🖼️ 교보문고 표지", key="cv_kyobo", use_container_width=True):
-                            _kk = _kyobo_cover(_cvisbn)
+                        if _z1.button("🔎 표지 자동 찾기", key="cv_kyobo", use_container_width=True,
+                                      help="국립중앙도서관 → 교보문고 → 구글 순서로 찾습니다."):
+                            with st.spinner("표지를 찾는 중입니다..."):
+                                _kk, _ksrc = _pick_cover(_cvisbn, "")
                             if _kk:
                                 _cv_put(_kk)
                                 st.rerun()
                             else:
-                                st.warning("ISBN이 13자리가 아니라 교보문고 주소를 만들 수 없습니다.")
+                                st.warning("표지 그림을 찾지 못했습니다. 주소를 직접 넣어 주세요.")
                         if _z2.button("💾 저장", key="cv_save", use_container_width=True,
                                       type="primary"):
                             if _set_book_cover(_cvisbn, _cvurl):
