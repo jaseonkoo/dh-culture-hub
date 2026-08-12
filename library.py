@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v23 (2026-07-30 · 서가 둘러보기 필터)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v24 (2026-07-30 · 연속 등록 화면)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -1342,6 +1342,25 @@ def _shelf(items, keyprefix, per_row=PER_ROW):
                     _shelf_item(chunk[j], f"{keyprefix}_{start + j}")
         st.markdown("<div class='lib-plank'></div>", unsafe_allow_html=True)
 
+def _focus_isbn():
+    """등록을 마친 뒤 커서를 다시 'ISBN' 칸으로 옮겨 준다.
+       (브라우저에 아주 짧은 안내를 보내는 방식이라, 안 먹혀도 아무 문제 없습니다)"""
+    try:
+        import streamlit.components.v1 as components
+    except Exception:
+        return
+    try:
+        components.html(
+            "<script>"
+            "setTimeout(function(){try{"
+            "var d=window.parent.document;"
+            "var e=d.querySelectorAll('input[aria-label^=\"ISBN\"]');"
+            "if(e.length){e[e.length-1].focus();e[e.length-1].select();}"
+            "}catch(x){}},120);"
+            "</script>", height=0)
+    except Exception:
+        pass
+
 def _loan_counts():
     """책(ISBN)마다 지금까지 몇 번 빌려 갔는지 세어 둔다."""
     out = {}
@@ -2209,16 +2228,62 @@ def _run_library():
                             st.success(f"{n}종을 수정했습니다."); st.rerun()
 
             with st.expander("➕ 도서 등록  (같은 ISBN을 다시 등록하면 수량이 늘어납니다)", expanded=True):
-                ic1, ic2 = st.columns([3, 1])
-                isbn_in = ic1.text_input("ISBN (스캔 또는 입력) *", key="reg_isbn")
-                if ic2.button("ISBN 조회", key="reg_lookup", use_container_width=True):
+                # 여러 권을 연달아 등록하기 좋게 만든 화면입니다.
+                # 등록을 마치면 칸이 모두 비워지고 커서가 ISBN 칸으로 돌아갑니다.
+                _seed = _to_int(st.session_state.get("reg_seed"), 0)
+
+                def _rk(n):
+                    """칸마다 붙는 이름표. 등록이 끝나면 번호가 하나 올라가면서
+                       칸들이 '새 칸'으로 다시 그려집니다. = 내용이 비워집니다."""
+                    return "reg_%s_%d" % (n, _seed)
+
+                def _rget(n, d=""):
+                    return st.session_state.get(_rk(n), d)
+
+                def _reg_reset():
+                    # 책 위치(서가 번호)는 보통 연달아 같은 곳이라 그대로 남겨 둡니다.
+                    st.session_state["reg_loc_keep"] = _rget("location")
+                    st.session_state["reg_seed"] = _seed + 1
+                    st.session_state["reg_focus"] = True
+
+                _keep_loc = str(st.session_state.get("reg_loc_keep", "") or "")
+                if _keep_loc and _rk("location") not in st.session_state:
+                    st.session_state[_rk("location")] = _keep_loc
+
+                _rdone = st.session_state.pop("reg_done", None)
+                if _rdone:
+                    (st.success if _rdone[0] else st.error)(_rdone[1])
+
+                # ---------- ① ISBN · 조회 · 등록 (한 줄) ----------
+                with st.form("reg_scan_form", clear_on_submit=False):
+                    r1, r2, r3 = st.columns([3, 1, 1])
+                    isbn_in = r1.text_input("ISBN (스캔 또는 입력) *", key=_rk("isbn"),
+                                            placeholder="바코드를 스캔하거나 숫자를 넣고 엔터")
+                    # 버튼 높이를 왼쪽 입력칸에 맞추기 위한 빈 자리입니다.
+                    r2.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                    _look = r2.form_submit_button("🔎 조회", use_container_width=True)
+                    r3.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                    _save = r3.form_submit_button("✅ 등록", use_container_width=True,
+                                                  type="primary")
+                st.caption("① 바코드를 스캔하면 **엔터**가 자동으로 눌려 바로 조회됩니다. "
+                           "(직접 칠 때도 엔터를 누르면 조회됩니다) → "
+                           "② 아래 내용을 확인하고 → ③ **[✅ 등록]** 을 누르면 화면이 비워지고 "
+                           "커서가 다시 ISBN 칸으로 돌아갑니다. 다음 책을 바로 스캔하세요.")
+
+                # ---------- ② 조회 ----------
+                # 아직 책 정보를 안 불러온 상태에서 [등록]이 눌렸으면(엔터 등),
+                # 잘못 등록되지 않도록 '조회'부터 해 줍니다.
+                _need_look = _save and not str(_rget("title")).strip() and str(isbn_in).strip()
+                if _need_look:
+                    _save = False
+                if _look or _need_look:
                     with st.spinner("도서 정보를 찾는 중입니다..."):
                         info, err = _lookup_isbn(isbn_in)
                     if info:
-                        for k in ["title", "author", "publisher", "year", "category", "cover"]:
-                            st.session_state[f"reg_{k}"] = info.get(k, "")
+                        for k in ["title", "author", "publisher", "year", "cover"]:
+                            st.session_state[_rk(k)] = str(info.get(k, "") or "")
                         # 분류는 숫자로 오기 때문에 한글 이름으로 바꿔서 넣어 둡니다.
-                        st.session_state["reg_category"] = _cat_text(info.get("category", ""))
+                        st.session_state[_rk("category")] = _cat_text(info.get("category", ""))
                         _src = str(info.get("cover_src", "") or "")
                         if _src:
                             st.success("제목·저자를 불러왔습니다. "
@@ -2228,17 +2293,36 @@ def _run_library():
                                        "표지 그림은 찾지 못했습니다. 확인 후 등록하세요.")
                     else:
                         _kb, _ = _pick_cover(isbn_in, "")
-                        st.session_state["reg_cover"] = _kb
+                        st.session_state[_rk("cover")] = _kb
                         st.warning(err or "도서 정보를 찾지 못했습니다. 직접 입력해 주세요.")
+                    if _need_look:
+                        st.info("책 정보를 먼저 불러왔습니다. 내용을 확인하고 "
+                                "**[✅ 등록]** 을 한 번 더 눌러 주세요.")
 
-                # ----- 표지 그림 확인 -----
-                _cv_now = _fix_cover_url(st.session_state.get("reg_cover", ""))
+                # ---------- ③ 등록 ----------
+                if _save:
+                    with st.spinner("등록 중입니다..."):
+                        ok, msg = _add_book({
+                            "isbn": isbn_in,
+                            "title": _rget("title"), "author": _rget("author"),
+                            "publisher": _rget("publisher"), "year": _rget("year"),
+                            "category": _rget("category"), "location": _rget("location"),
+                            "qty": max(1, _to_int(_rget("qty", 1), 1)),
+                            "cover": _fix_cover_url(_rget("cover"))})
+                    if ok:
+                        st.session_state["reg_done"] = (True, msg)
+                        _reg_reset()
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+                # ---------- 표지 확인 ----------
+                _cv_now = _fix_cover_url(_rget("cover"))
                 cv1, cv2 = st.columns([1, 3])
                 with cv1:
                     st.markdown(
                         "<div style='max-width:120px'>%s</div>"
-                        % _cover_html({"cover": _cv_now},
-                                      st.session_state.get("reg_title", "") or "표지 미리보기"),
+                        % _cover_html({"cover": _cv_now}, _rget("title") or "표지 미리보기"),
                         unsafe_allow_html=True)
                 with cv2:
                     if _cv_now:
@@ -2253,48 +2337,39 @@ def _run_library():
                                   use_container_width=True,
                                   help="국립중앙도서관 → 교보문고 → 구글 순서로 찾습니다."):
                         with st.spinner("표지를 찾는 중입니다..."):
-                            _k, _ksrc = _pick_cover(isbn_in, "")
-                        if _k:
-                            st.session_state["reg_cover"] = _k
+                            _k2, _ksrc = _pick_cover(isbn_in, "")
+                        if _k2:
+                            st.session_state[_rk("cover")] = _k2
                             st.rerun()
                         else:
                             st.warning("표지 그림을 찾지 못했습니다. "
                                        "ISBN을 확인하시거나 주소를 직접 넣어 주세요.")
                     if kb2.button("🧹 표지 비우기", key="reg_nocover", use_container_width=True):
-                        st.session_state["reg_cover"] = ""
+                        st.session_state[_rk("cover")] = ""
                         st.rerun()
-                with st.form("book_form", clear_on_submit=True):
-                    title = st.text_input("제목 *", value=st.session_state.get("reg_title", ""))
-                    bc1, bc2 = st.columns(2)
-                    author = bc1.text_input("저자", value=st.session_state.get("reg_author", ""))
-                    publisher = bc2.text_input("출판사", value=st.session_state.get("reg_publisher", ""))
-                    bc3, bc4 = st.columns(2)
-                    year = bc3.text_input("출판연도", value=st.session_state.get("reg_year", ""))
-                    category = bc4.text_input("분류 (책의 갈래)",
-                                              value=st.session_state.get("reg_category", ""),
-                                              help="ISBN 조회를 하면 자동으로 채워집니다. "
-                                                   "원하시는 말로 바꿔 적으셔도 됩니다. (예: 경영, 자기계발)")
-                    bc5, bc6 = st.columns(2)
-                    location = bc5.text_input("위치 (예: A-3)")
-                    qty = bc6.number_input("수량(권수)", min_value=1, value=1, step=1)
-                    cover_in = st.text_input("표지 그림 주소 (인터넷 주소)",
-                                             value=st.session_state.get("reg_cover", ""),
-                                             help="인터넷에서 표지 그림을 오른쪽 클릭 → "
-                                                  "'이미지 주소 복사' 한 것을 붙여 넣으셔도 됩니다.")
-                    st.caption("책 소개는 등록 후 구글 시트 books 탭의 summary 열에 적어 주세요.")
-                    if st.form_submit_button("등록", use_container_width=True):
-                      with st.spinner("등록 중입니다..."):
-                        ok, msg = _add_book({
-                            "isbn": isbn_in, "title": title, "author": author, "publisher": publisher,
-                            "year": year, "category": category, "location": location,
-                            "qty": qty, "cover": _fix_cover_url(cover_in)})
-                      if ok:
-                          for k in ["reg_title", "reg_author", "reg_publisher", "reg_year",
-                                    "reg_category", "reg_cover"]:
-                              st.session_state[k] = ""
-                          st.success(msg)
-                      else:
-                          st.error(msg)
+
+                # ---------- 책 정보 (확인하고 고치는 칸) ----------
+                st.text_input("제목 *", key=_rk("title"))
+                bc1, bc2 = st.columns(2)
+                bc1.text_input("저자", key=_rk("author"))
+                bc2.text_input("출판사", key=_rk("publisher"))
+                bc3, bc4 = st.columns(2)
+                bc3.text_input("출판연도", key=_rk("year"))
+                bc4.text_input("분류 (책의 갈래)", key=_rk("category"),
+                               help="ISBN 조회를 하면 자동으로 채워집니다. "
+                                    "원하시는 말로 바꿔 적으셔도 됩니다. (예: 경영, 자기계발)")
+                bc5, bc6 = st.columns(2)
+                bc5.text_input("위치 (예: A-3)", key=_rk("location"),
+                               help="한 번 적어 두면 [등록] 뒤에도 그대로 남습니다.")
+                bc6.text_input("수량(권수)", key=_rk("qty"), placeholder="1",
+                               help="비워 두면 1권으로 등록됩니다.")
+                st.text_input("표지 그림 주소 (인터넷 주소)", key=_rk("cover"),
+                              help="인터넷에서 표지 그림을 오른쪽 클릭 → "
+                                   "'이미지 주소 복사' 한 것을 붙여 넣으셔도 됩니다.")
+                st.caption("책 소개는 등록 후 구글 시트 books 탭의 summary 열에 적어 주세요.")
+
+                if st.session_state.pop("reg_focus", False):
+                    _focus_isbn()
 
             with st.expander("🖼️ 책 표지 채우기 · 고치기"):
                 st.caption("표지 그림이 안 나오는 책을 여기서 고칠 수 있습니다. "
