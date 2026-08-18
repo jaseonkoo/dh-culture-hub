@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v33 (2026-07-30 · 내 대출에서 반납)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v34 (2026-07-30 · 예약·희망도서 자동채움)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -426,7 +426,7 @@ def _send_mail(to, subject, body):
     return False, "메일 발송 실패: %s" % err
 
 _MAIL_TAIL = ("\n\n───────────────\n대한사료 사내도서관\n"
-              "이 메일은 자동으로 발송되었습니다. 문의는 인사팀으로 부탁드립니다.")
+              "이 메일은 자동으로 발송되었습니다. 문의는 인사총무팀으로 부탁드립니다.")
 
 # 마지막으로 메일을 보내려다 실패한 이유를 담아 둡니다. (화면에 보여주기 위한 것)
 _MAIL_ERR = [""]
@@ -1395,6 +1395,32 @@ def _shelf_item(it, key):
 PER_ROW = 7      # 👈 한 줄에 몇 권씩 보여줄지. 숫자만 바꾸면 됩니다.
 TOP_N   = 7      # 👈 홈 화면 '가장 많이 읽은 책'을 몇 권까지 보여줄지.
 
+def _res_form(isbn, key):
+    """예약 신청 칸. 사번을 넣으면 저장된 이름·회사 이메일이 자동으로 채워집니다.
+       (스트림릿 '폼 상자' 안에서는 자동 채우기가 안 되어서 폼을 쓰지 않습니다)"""
+    rc1, rc2, rc3 = st.columns([1, 1, 2])
+    rs = rc1.text_input("사번", key="res_saban_%s" % key, placeholder="사번 입력")
+
+    _kn = _member_name(rs)
+    if _kn:
+        rc2.text_input("이름", value=_kn, disabled=True, key="res_name_auto_%s" % key)
+        rn = _kn
+    else:
+        rn = rc2.text_input("이름", key="res_name_%s" % key, placeholder="이름")
+
+    _km = _member_email(rs)
+    if _km:
+        rc3.text_input("회사 이메일", value=_km, disabled=True, key="res_mail_auto_%s" % key)
+        re_ = _km
+    else:
+        re_ = rc3.text_input("회사 이메일", key="res_mail_%s" % key,
+                             placeholder="hong@" + MAIL_DOMAIN)
+
+    st.caption("책이 반납되면 위 이메일로 알려드립니다.")
+    if st.button("예약 신청", key="res_go_%s" % key, use_container_width=True, type="primary"):
+        ok, msg = _reserve(isbn, rs, rn, re_)
+        (st.success if ok else st.error)(msg)
+
 def _shelf(items, keyprefix, per_row=PER_ROW):
     """책장처럼 한 줄에 여러 권 + 아래에 나무 선반."""
     if not items:
@@ -1553,15 +1579,7 @@ def _detail_page(isbn):
             if nxt:
                 st.markdown(f"<p class='lib-hint'>반납 예정일 : {_esc(nxt)}</p>", unsafe_allow_html=True)
             with st.expander("🔖 이 책 예약하기"):
-                with st.form(f"dt_res_{_norm_isbn(isbn)}", clear_on_submit=True):
-                    rc1, rc2 = st.columns(2)
-                    rs = rc1.text_input("사번")
-                    rn = rc2.text_input("이름 (처음 이용 시 1회)")
-                    re_ = st.text_input("회사 이메일 (책이 들어오면 알려드립니다)",
-                                        placeholder="hong@" + MAIL_DOMAIN)
-                    if st.form_submit_button("예약 신청", use_container_width=True, type="primary"):
-                        ok, msg = _reserve(b.get("isbn"), rs, rn, re_)
-                        (st.success if ok else st.error)(msg)
+                _res_form(b.get("isbn"), "dt_%s" % _norm_isbn(isbn))
 
     _sec_title("책 소개", "어떤 책인가요")
     summ = _book_summary_text(b)
@@ -2187,16 +2205,7 @@ def _run_library():
             with st.expander("🔖 대출 중인 책 예약하기"):
                 _opts = {f"{b.get('title')} ({b.get('author') or '저자 미상'})": b for b in out_books}
                 _pick = st.selectbox("예약할 책", list(_opts.keys()), key="res_pick")
-                with st.form("res_form", clear_on_submit=True):
-                    rc1, rc2 = st.columns(2)
-                    rs = rc1.text_input("사번", key="res_saban")
-                    rn = rc2.text_input("이름 (처음 이용 시 1회)", key="res_name")
-                    re_ = st.text_input("회사 이메일 (책이 들어오면 알려드립니다)",
-                                        key="res_mail", placeholder="hong@" + MAIL_DOMAIN)
-                    if st.form_submit_button("예약 신청", use_container_width=True, type="primary"):
-                        _b = _opts.get(_pick)
-                        ok, msg = _reserve((_b or {}).get("isbn"), rs, rn, re_)
-                        (st.success if ok else st.error)(msg)
+                _res_form((_opts.get(_pick) or {}).get("isbn"), "search")
 
     # ---------------- 내 대출 / 희망도서 ----------------
     if menu == MENU[3]:
@@ -2264,18 +2273,28 @@ def _run_library():
         # (👑 관리자 → 🙋 희망도서 접수 → [보이기] / [감추기])
         if _wish_on():
             _sec_title("희망도서 신청", "읽고 싶은 책을 알려주세요")
-            with st.form("wish_form", clear_on_submit=True):
-                wc1, wc2 = st.columns(2)
-                ws_ = wc1.text_input("사번")
-                wn_ = wc2.text_input("이름")
-                we_ = st.text_input("회사 이메일 (구입 여부를 알려드립니다)",
-                                    placeholder="hong@" + MAIL_DOMAIN)
-                wt_ = st.text_input("도서 제목")
-                wa_ = st.text_input("저자 (선택)")
-                wr_ = st.text_area("신청 사유 (선택)", height=70)
-                if st.form_submit_button("신청하기", use_container_width=True):
-                    ok, msg = _add_wish(ws_, wn_, wt_, wa_, wr_, we_)
-                    (st.success if ok else st.error)(msg)
+            # 예약과 마찬가지로, 사번을 넣으면 이름·이메일이 자동으로 채워집니다.
+            wc1, wc2, wc3 = st.columns([1, 1, 2])
+            ws_ = wc1.text_input("사번", key="wish_saban", placeholder="사번 입력")
+            _wkn = _member_name(ws_)
+            if _wkn:
+                wc2.text_input("이름", value=_wkn, disabled=True, key="wish_name_auto")
+                wn_ = _wkn
+            else:
+                wn_ = wc2.text_input("이름", key="wish_name", placeholder="이름")
+            _wkm = _member_email(ws_)
+            if _wkm:
+                wc3.text_input("회사 이메일", value=_wkm, disabled=True, key="wish_mail_auto")
+                we_ = _wkm
+            else:
+                we_ = wc3.text_input("회사 이메일", key="wish_mail",
+                                     placeholder="hong@" + MAIL_DOMAIN)
+            wt_ = st.text_input("도서 제목", key="wish_title")
+            wa_ = st.text_input("저자 (선택)", key="wish_author")
+            wr_ = st.text_area("신청 사유 (선택)", height=70, key="wish_reason")
+            if st.button("신청하기", key="wish_go", use_container_width=True, type="primary"):
+                ok, msg = _add_wish(ws_, wn_, wt_, wa_, wr_, we_)
+                (st.success if ok else st.error)(msg)
             st.caption(f"신청하시면 담당자({WISH_TO})에게 바로 알림 메일이 갑니다.")
 
     # ---------------- 관리자 ----------------
