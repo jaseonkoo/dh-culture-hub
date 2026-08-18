@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v34 (2026-07-30 · 예약·희망도서 자동채움)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v35 (2026-07-30 · 카드에 예약하기)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -1226,13 +1226,18 @@ def _menu_label(m):
         return "🙋 내 대출 현황"
     return m
 
-def _goto_detail(isbn):
-    """책 카드의 [자세히] → 책 상세 화면으로."""
+def _goto_detail(isbn, res_open=False):
+    """책 카드의 [자세히] → 책 상세 화면으로.
+       res_open=True 이면 예약 칸을 펼친 채로 엽니다."""
     isbn = _norm_isbn(isbn)
     if not isbn:
         return
     st.session_state["lib_detail"] = isbn
     st.session_state["lib_detail_back"] = st.session_state.get("lib_menu", MENU[0])
+    if res_open:
+        st.session_state["lib_res_open"] = isbn
+    else:
+        st.session_state.pop("lib_res_open", None)
     st.rerun()
 
 def _back_to_list(key):
@@ -1246,7 +1251,12 @@ def _back_to_list(key):
         st.session_state["lib_menu"] = where
         st.session_state.pop("lib_detail", None)
         st.session_state.pop("lib_detail_back", None)
+        st.session_state.pop("lib_res_open", None)
         st.rerun()
+
+def _goto_reserve(isbn):
+    """책 카드의 [예약하기] → 상세 화면으로 가면서 예약 칸을 펼쳐 준다."""
+    _goto_detail(isbn, res_open=True)
 
 def _goto_lend(book):
     """[바로 대출하기] → 대출·반납 메뉴로 이동하면서 ISBN을 미리 채워 둔다."""
@@ -1388,9 +1398,15 @@ def _shelf_item(it, key):
             if bc2.button("빌리기", key=f"go_{key}", use_container_width=True, type="primary"):
                 _goto_lend(b)
         else:
-            if st.button("자세히", key=f"dt_{key}", use_container_width=True, disabled=not isbn):
+            bc1, bc2 = st.columns(2)
+            if bc1.button("자세히", key=f"dt_{key}", use_container_width=True, disabled=not isbn):
                 _goto_detail(isbn)
-            st.markdown("<div class='lib-btn-off'>대출 불가</div>", unsafe_allow_html=True)
+            if label in ("대출중", "예약중"):
+                # 누르면 책 상세 화면으로 가면서 예약 칸이 펼쳐집니다.
+                if bc2.button("예약하기", key=f"rs_{key}", use_container_width=True):
+                    _goto_reserve(isbn)
+            else:
+                bc2.button("대출불가", key=f"nx_{key}", use_container_width=True, disabled=True)
 
 PER_ROW = 7      # 👈 한 줄에 몇 권씩 보여줄지. 숫자만 바꾸면 됩니다.
 TOP_N   = 7      # 👈 홈 화면 '가장 많이 읽은 책'을 몇 권까지 보여줄지.
@@ -1578,7 +1594,8 @@ def _detail_page(isbn):
             nxt = _next_due_text(b.get("isbn"))
             if nxt:
                 st.markdown(f"<p class='lib-hint'>반납 예정일 : {_esc(nxt)}</p>", unsafe_allow_html=True)
-            with st.expander("🔖 이 책 예약하기"):
+            _res_open = (str(st.session_state.get("lib_res_open", "")) == _norm_isbn(isbn))
+            with st.expander("🔖 이 책 예약하기", expanded=_res_open):
                 _res_form(b.get("isbn"), "dt_%s" % _norm_isbn(isbn))
 
     _sec_title("책 소개", "어떤 책인가요")
