@@ -32,8 +32,8 @@ MAIL_DOMAIN = "daehanfeed.co.kr"
 
 # 메일서버를 직접 정하고 싶을 때만 적으세요. 비워 두면 알아서 찾습니다.
 # (회사 메일이 구글·네이버·다음이 아니라면 전산 담당자에게 물어보고 적어 주세요)
-MAIL_HOST  = ""     # 예) "smtp.gmail.com"
-MAIL_PORT  = 0      # 예) 465 또는 587
+MAIL_HOST  = "smtp.dooray.com"     # 예) "smtp.gmail.com"
+MAIL_PORT  = 465      # 예) 465 또는 587
 
 # 희망도서가 접수되면 이 주소로 알림 메일이 갑니다.
 WISH_TO    = "jsgu@daehanfeed.co.kr"
