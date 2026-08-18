@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v30 (2026-07-30 · 1인 1권)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v31 (2026-07-30 · 메일 발송 기록)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -407,11 +407,27 @@ def _send_mail(to, subject, body):
 _MAIL_TAIL = ("\n\n───────────────\n대한사료 사내도서관\n"
               "이 메일은 자동으로 발송되었습니다. 문의는 인사팀으로 부탁드립니다.")
 
-def _mail_quiet(to, subject, body):
-    """실패해도 대출·반납 자체는 성공 처리한다. (메일은 부가 기능)"""
-    if not _valid_mail(to) or not _mail_ready():
+# 마지막으로 메일을 보내려다 실패한 이유를 담아 둡니다. (화면에 보여주기 위한 것)
+_MAIL_ERR = [""]
+
+def _mail_quiet(to, subject, body, kind="", key=""):
+    """실패해도 대출·반납 자체는 성공 처리한다. (메일은 부가 기능)
+       다만 '왜 안 갔는지'는 기록해 두고 화면에서 알려 줍니다."""
+    if not _mail_ready():
+        _MAIL_ERR[0] = "메일 보내는 계정을 찾지 못했습니다. (👑 관리자 → 📧 이메일 알림 설정)"
         return False
-    ok, _ = _send_mail(to, subject, body + _MAIL_TAIL)
+    if not _valid_mail(to):
+        _MAIL_ERR[0] = ("받는 사람 이메일이 없거나 형식이 올바르지 않습니다. (%s)"
+                        % (str(to).strip() or "빈칸"))
+        return False
+    ok, msg = _send_mail(to, subject, body + _MAIL_TAIL)
+    _MAIL_ERR[0] = "" if ok else str(msg)
+    if kind:
+        # 보낸 기록을 시트에 남깁니다. (관리자 화면에서 확인할 수 있습니다)
+        try:
+            _log_mail(kind, key, to, "성공" if ok else ("실패 · " + str(msg)[:90]))
+        except Exception:
+            pass
     return ok
 
 # ---------------- 같은 안내를 두 번 보내지 않게 기록 ----------------
@@ -815,9 +831,11 @@ def _checkout(isbn, saban, name, email=""):
          "반납일이 다가오면 다시 안내 메일을 보내 드립니다. "
          "연장은 도서관 화면의 [%s] 에서 %d회까지 가능합니다.")
         % (member["name"], book.get("title", ""), str(loan_date), str(due), LOAN_DAYS,
-           _menu_label(MENU[3]), MAX_RENEW))
+           _menu_label(MENU[3]), MAX_RENEW),
+        "대출", loan_id)
     return True, {"title": book.get("title", ""), "due": str(due), "name": member["name"],
-                  "mailed": mailed, "email": member.get("email", "")}
+                  "mailed": mailed, "email": member.get("email", ""),
+                  "mail_msg": _MAIL_ERR[0]}
 
 # ---------------- 반납 ----------------
 def _open_loans(isbn):
@@ -873,7 +891,8 @@ def _checkin(isbn, saban=""):
         ("%s님 안녕하세요.\n\n반납이 확인되었습니다.\n\n"
          "  · 도서 : %s\n"
          "  · 반납일 : %s\n\n"
-         "이용해 주셔서 감사합니다.") % (str(loan.get("name", "")), book.get("title", ""), str(_today())))
+         "이용해 주셔서 감사합니다.") % (str(loan.get("name", "")), book.get("title", ""), str(_today())),
+        "반납", str(loan.get("loan_id", "")))
     # 예약해 둔 사람에게 '들어왔습니다' 메일
     if waiting:
         _mail_quiet(
@@ -884,7 +903,8 @@ def _checkin(isbn, saban=""):
              "  · 위치 : %s\n\n"
              "다른 분이 먼저 빌려 갈 수 있으니 가능하면 오늘 중에 대출해 주세요.")
             % (str(waiting.get("name", "")), book.get("title", ""),
-               str(book.get("location", "") or "안내데스크에 문의")))
+               str(book.get("location", "") or "안내데스크에 문의")),
+            "예약도착", str(waiting.get("res_id", "")))
 
     return True, {"title": book.get("title", ""), "overdue": overdue,
                   "waiting": waiting["name"] if waiting else "", "borrower": str(loan.get("name", ""))}
@@ -918,7 +938,8 @@ def _renew(loan_id, saban):
                  "  · 도서 : %s\n"
                  "  · 새 반납 예정일 : %s\n\n"
                  "연장 횟수 %d/%d회를 사용하셨습니다.")
-                % (str(r.get("name", "")), str(r.get("title", "")), str(newdue), cnt + 1, MAX_RENEW))
+                % (str(r.get("name", "")), str(r.get("title", "")), str(newdue), cnt + 1, MAX_RENEW),
+                "연장", str(r.get("loan_id", "")))
             return True, {"due": str(newdue)}
     return False, "대출 기록을 찾을 수 없습니다."
 
@@ -975,7 +996,8 @@ def _add_wish(saban, name, title, author, reason, email=""):
          "구글 시트 '%s' 의 wishlist 탭에서 처리 상태를 바꿀 수 있습니다.")
         % (str(title), str(author) or "-", member["name"], member["saban"],
            member.get("email", "") or "-", str(_today()),
-           str(reason).strip() or "-", LIB_DB))
+           str(reason).strip() or "-", LIB_DB),
+        "희망도서담당", wid)
     # 신청자에게 접수 확인
     _mail_quiet(
         member.get("email", ""),
@@ -984,7 +1006,8 @@ def _add_wish(saban, name, title, author, reason, email=""):
          "  · 도서 : %s\n"
          "  · 신청일 : %s\n\n"
          "구입 여부가 결정되면 담당자가 안내해 드립니다.")
-        % (member["name"], str(title), str(_today())))
+        % (member["name"], str(title), str(_today())),
+        "희망도서", wid)
     return True, "희망도서 신청이 접수되었습니다."
 
 def _set_wish_status(wish_id, status):
@@ -1464,6 +1487,8 @@ def _show_done():
         st.success(m.get("text", ""))
         if m.get("cap"):
             st.caption(m["cap"])
+        if m.get("warn"):
+            st.warning(m["warn"])
         if m.get("party"):
             st.balloons()
     else:
@@ -1955,7 +1980,10 @@ def _run_library():
                         st.session_state["lib_done_msg"] = {
                             "ok": True, "party": True,
                             "text": "✅ **%s** 대출 완료 · 반납예정일 **%s**" % (res["title"], res["due"]),
-                            "cap": ("✉️ %s 로 안내 메일을 보냈습니다." % res["email"]) if res.get("mailed") else ""}
+                            "cap": ("✉️ %s 로 안내 메일을 보냈습니다." % res["email"]) if res.get("mailed") else "",
+                            "warn": ("" if res.get("mailed") else
+                                     "✉️ 안내 메일은 발송되지 않았습니다. %s"
+                                     % (res.get("mail_msg") or ""))}
                         st.rerun()
                     else:
                         # 사번·이메일이 빠졌을 때는 확인 화면을 그대로 두어
@@ -2634,6 +2662,26 @@ def _run_library():
                             st.success("보냄 %d통 / 실패 %d통" % (_s, _f))
                         else:
                             st.info(_note or "지금 보낼 안내 메일이 없습니다.")
+
+                    st.markdown("---")
+                    st.markdown("**📮 최근에 보낸 메일 기록**")
+                    st.caption("메일이 안 왔다고 하시면 여기부터 보세요. "
+                               "**성공**이면 우리 쪽에서는 정상 발송된 것이니 **스팸함**을 확인하시고, "
+                               "**실패**면 옆에 적힌 이유를 알려 주세요.")
+                    _mlog = list(reversed(_records("maillog")))[:20]
+                    if _mlog:
+                        st.dataframe(pd.DataFrame([{"날짜": r.get("date"), "종류": r.get("kind"),
+                                                    "받는 사람": r.get("to"), "결과": r.get("result")}
+                                                   for r in _mlog]),
+                                     use_container_width=True, hide_index=True)
+                        _bad = [r for r in _mlog
+                                if str(r.get("result", "")).strip() != "성공"]
+                        if _bad:
+                            st.error("최근 20건 중 **%d건이 실패**했습니다. "
+                                     "맨 위 [시험 메일 보내기]로 다시 확인해 보세요." % len(_bad))
+                    else:
+                        st.info("아직 보낸 기록이 없습니다. "
+                                "메일이 한 통도 나가지 않았다는 뜻입니다.")
 
                     st.markdown("---")
                     st.markdown("**이메일이 없는 대출자**")
