@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v31 (2026-07-30 · 메일 발송 기록)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v33 (2026-07-30 · 내 대출에서 반납)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -32,8 +32,8 @@ MAIL_DOMAIN = "daehanfeed.co.kr"
 
 # 메일서버를 직접 정하고 싶을 때만 적으세요. 비워 두면 알아서 찾습니다.
 # (회사 메일이 구글·네이버·다음이 아니라면 전산 담당자에게 물어보고 적어 주세요)
-MAIL_HOST  = "smtp.dooray.com"     # 예) "smtp.gmail.com"
-MAIL_PORT  = 465      # 예) 465 또는 587
+MAIL_HOST  = "smtp.dooray.com"   # 대한사료 메일서버 (두레이)
+MAIL_PORT  = 465                 # 465 = 보안 연결
 
 # 희망도서가 접수되면 이 주소로 알림 메일이 갑니다.
 WISH_TO    = "jsgu@daehanfeed.co.kr"
@@ -354,6 +354,7 @@ def _mail_cfg():
 def _mail_seen():
     """관리자 화면에서 '무엇이 보이는지'를 알려주기 위한 목록.
        비밀번호 값은 절대 보여주지 않습니다."""
+    used = (_mail_cfg() or {}).get("where", "")
     rows = []
     for name, d in _secret_groups():
         skip = any(b in name.lower() for b in _MAIL_SKIP)
@@ -361,10 +362,30 @@ def _mail_seen():
             keys = [str(k) for k in d.keys()]
         except Exception:
             keys = []
+        got = None if skip else _mail_pick(name, d)
+        if skip:
+            state = "아니오 (구글 시트 열쇠)"
+        elif got and name == used:
+            state = "✅ 지금 이 계정을 씁니다"
+        elif got:
+            state = "⚠️ 메일 계정 같지만 안 쓰는 중"
+        else:
+            state = "-"
         rows.append({"묶음 이름": name,
                      "안에 있는 칸 이름": ", ".join(keys[:12]) if keys else "-",
-                     "메일 계정으로 볼까요?": "아니오 (구글 시트 열쇠)" if skip else "예"})
+                     "메일 계정?": state,
+                     "보내는 주소": (got or {}).get("sender", "")})
     return rows
+
+def _mail_candidates():
+    """메일 계정으로 쓸 수 있어 보이는 묶음이 몇 개인지."""
+    out = []
+    for name, d in _secret_groups():
+        if any(b in name.lower() for b in _MAIL_SKIP):
+            continue
+        if _mail_pick(name, d):
+            out.append(name)
+    return out
 
 def _mail_ready():
     return _mail_cfg() is not None
@@ -2200,18 +2221,44 @@ def _run_library():
             for l in mine:
                 over = _is_overdue(l)
                 cnt = _to_int(l.get("renew_count"))
-                col1, col2 = st.columns([3, 1])
+                lid = str(l.get("loan_id", ""))
+                col1, col2, col3 = st.columns([3, 1, 1])
                 status_txt = "🔴 연체" if over else "대출중"
                 col1.markdown(f"**{l.get('title')}**  \n반납예정 {l.get('due_date')} · {status_txt} · 연장 {cnt}/{MAX_RENEW}회")
+
                 if cnt < MAX_RENEW:
-                    if col2.button("연장", key=f"rnw_{l.get('loan_id')}", use_container_width=True):
-                        ok, res = _renew(l.get("loan_id"), msaban)
+                    if col2.button("연장", key=f"rnw_{lid}", use_container_width=True):
+                        ok, res = _renew(lid, msaban)
                         if ok:
                             st.success(f"연장 완료 · 새 반납예정일 {res['due']}"); time.sleep(1); st.rerun()
                         else:
                             st.error(res)
                 else:
                     col2.caption("연장불가")
+
+                # 반납은 실수로 눌리지 않도록 한 번 더 물어봅니다.
+                if st.session_state.get("my_ci_ask") == lid:
+                    col3.caption("확인 중")
+                    st.warning("**%s** 을(를) 반납할까요? 책을 서가에 꽂아 주세요."
+                               % str(l.get("title", "")))
+                    yy, nn = st.columns(2)
+                    if yy.button("✅ 네, 반납합니다", key=f"ciy_{lid}",
+                                 type="primary", use_container_width=True):
+                        ok, res = _checkin(l.get("isbn"), msaban)
+                        st.session_state.pop("my_ci_ask", None)
+                        if ok:
+                            extra = " (연체 반납)" if res["overdue"] else ""
+                            wait = (" · 🔔 예약자 %s님 대기" % res["waiting"]) if res["waiting"] else ""
+                            st.success("✅ **%s** 반납 완료%s%s" % (res["title"], extra, wait))
+                            time.sleep(1); st.rerun()
+                        else:
+                            st.error(res if isinstance(res, str) else res.get("msg", "반납하지 못했습니다."))
+                    if nn.button("아니요", key=f"cin_{lid}", use_container_width=True):
+                        st.session_state.pop("my_ci_ask", None); st.rerun()
+                else:
+                    if col3.button("반납", key=f"ci_{lid}", use_container_width=True):
+                        st.session_state["my_ci_ask"] = lid
+                        st.rerun()
 
         # 희망도서 접수는 관리자가 켜고 끌 수 있습니다.
         # (👑 관리자 → 🙋 희망도서 접수 → [보이기] / [감추기])
@@ -2611,6 +2658,12 @@ def _run_library():
                                "**주소 칸(@가 들어간 값)** 과 **비밀번호 칸**(이름에 "
                                "password·pw·secret·token·key 중 하나가 들어간 칸)이 "
                                "둘 다 있어야 합니다.")
+                    _cands = _mail_candidates()
+                    if len(_cands) > 1:
+                        st.error("메일 계정처럼 보이는 묶음이 **%d개** 있습니다 (%s). "
+                                 "도서관은 이 중 **맨 위 하나만** 사용합니다. "
+                                 "예전에 쓰던 묶음이 남아 있다면 지워 주세요."
+                                 % (len(_cands), ", ".join("[%s]" % c for c in _cands)))
                     _seen = _mail_seen()
                     if _seen:
                         st.dataframe(pd.DataFrame(_seen), use_container_width=True, hide_index=True)
