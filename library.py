@@ -1873,7 +1873,7 @@ def _run_library():
                 name = known
                 c1.caption(f"👤 **{known}** 님, 반갑습니다.")
             else:
-                name = c2.text_input("이름 (처음 이용 시 1회)", key="co_name", placeholder="이름")
+                name = c2.text_input("이름", key="co_name", placeholder="이름")
                 if str(saban).strip():
                     c1.caption("🆕 처음 보는 사번이에요. 오른쪽에 이름을 한 번만 적어 주세요. "
                                "다음부터는 사번만 넣으면 이름이 자동으로 나옵니다.")
