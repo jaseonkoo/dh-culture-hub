@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v28 (2026-07-30 · 대출 화면 한 줄)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v29 (2026-07-30 · 대출 화면 정리)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -1857,7 +1857,7 @@ def _run_library():
                 pc1.markdown(
                     f"<div class='lib-note'>📕 <b>{_esc(ptitle)}</b> 을(를) 빌립니다."
                     f"<br><span class='lib-hint'>ISBN {_esc(prefill)}</span>"
-                    "<br>아래에 <b>사번</b>을 넣고 [확인 화면으로]를 누르세요. "
+                    "<br>아래에 <b>사번</b>을 넣고 [대출하기]를 누르세요. "
                     "바코드는 찍지 않아도 됩니다.</div>",
                     unsafe_allow_html=True)
                 if pc2.button("취소", key="co_clear", use_container_width=True):
@@ -1869,24 +1869,23 @@ def _run_library():
             # (카메라를 쓸 때는 ISBN 칸 대신 아래에 카메라가 나옵니다)
             _co_pending = bool(st.session_state.get("lib_co_pend"))
             _wide = (not use_cam) and (not _co_pending)
-            if _wide:
-                c1, c2, c3, c4 = st.columns([1, 1, 2, 2])
-            else:
-                c1, c2, c3 = st.columns([1, 1, 2])
+            # 네 칸을 똑같은 너비(각 1/4)로 나눕니다.
+            c1, c2, c3, c4 = st.columns(4)
+            if not _wide:
                 c4 = None
 
             saban = c1.text_input("사번", key="co_saban", placeholder="사번 입력")
             known = _member_name(saban)
             if known:
                 # 이미 한 번이라도 이용한 사번 → 이름을 자동으로 채워 보여준다.
-                c2.text_input("이름 (자동 입력됨)", value=known, disabled=True, key="co_name_auto")
+                c2.text_input("이름", value=known, disabled=True, key="co_name_auto")
                 name = known
             else:
-                name = c2.text_input("이름 (처음 이용 시 1회)", key="co_name", placeholder="이름")
+                name = c2.text_input("이름", key="co_name", placeholder="이름")
 
             # 회사 이메일 (필수). 한 번 넣으면 다음부터 자동으로 채워집니다.
             _saved_mail = _member_email(saban)
-            email = c3.text_input("회사 이메일 *필수*",
+            email = c3.text_input("회사 이메일",
                                   value=_saved_mail,
                                   placeholder="hong@" + MAIL_DOMAIN)
 
@@ -1897,7 +1896,7 @@ def _run_library():
                     with st.form("co_form", clear_on_submit=True):
                         _isbn_typed = st.text_input("책 ISBN 바코드 (스캔 또는 직접 입력)",
                                                     value=prefill)
-                        _go_scan = st.form_submit_button("확인 화면으로",
+                        _go_scan = st.form_submit_button("대출하기",
                                                          use_container_width=True,
                                                          type="primary")
 
@@ -2023,7 +2022,7 @@ def _run_library():
             else:
                 with st.form("ci_form", clear_on_submit=True):
                     manual = st.text_input("반납할 책 ISBN 바코드")
-                    _goi = st.form_submit_button("확인 화면으로", use_container_width=True,
+                    _goi = st.form_submit_button("반납하기", use_container_width=True,
                                                  type="primary")
                 if _goi:
                     _stage_scan("ci", manual)
