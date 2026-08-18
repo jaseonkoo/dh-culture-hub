@@ -1499,7 +1499,7 @@ def _detail_page(isbn):
                 with st.form(f"dt_res_{_norm_isbn(isbn)}", clear_on_submit=True):
                     rc1, rc2 = st.columns(2)
                     rs = rc1.text_input("사번")
-                    rn = rc2.text_input("이름 (처음 이용 시 1회)")
+                    rn = rc2.text_input("이름")
                     re_ = st.text_input("회사 이메일 (책이 들어오면 알려드립니다)",
                                         placeholder="hong@" + MAIL_DOMAIN)
                     if st.form_submit_button("예약 신청", use_container_width=True, type="primary"):
