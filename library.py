@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v29 (2026-07-30 · 대출 화면 정리)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v30 (2026-07-30 · 1인 1권)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -45,7 +45,7 @@ MAIL_MAX   = 20
 LOAN_DAYS  = 14
 RENEW_DAYS = 7
 MAX_RENEW  = 1
-MAX_LOANS  = 5
+MAX_LOANS  = 1     # 👈 한 사람이 동시에 빌릴 수 있는 권수
 
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
          "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
@@ -786,6 +786,11 @@ def _checkout(isbn, saban, name, email=""):
     if any(_norm_isbn(l.get("isbn")) == isbn for l in my_active):
         return False, "이미 이 책을 대출 중입니다."
     if len(my_active) >= MAX_LOANS:
+        if MAX_LOANS == 1:
+            _now = my_active[0]
+            return False, ("한 번에 한 권만 빌릴 수 있습니다. 지금 빌리신 책(%s)을 "
+                           "먼저 반납해 주세요. (반납 예정일 %s)"
+                           % (str(_now.get("title", "")), str(_now.get("due_date", ""))))
         return False, f"동시 대출 한도({MAX_LOANS}권)를 초과했습니다."
     if _to_int(book.get("available_qty")) <= 0:
         return False, "현재 모든 권이 대출 중입니다. '검색' 탭에서 예약할 수 있어요."
@@ -815,6 +820,12 @@ def _checkout(isbn, saban, name, email=""):
                   "mailed": mailed, "email": member.get("email", "")}
 
 # ---------------- 반납 ----------------
+def _open_loans(isbn):
+    """이 책(ISBN)을 지금 빌려 간 사람들의 대출 기록."""
+    key = _norm_isbn(isbn)
+    return [r for r in _records("loans")
+            if _norm_isbn(r.get("isbn")) == key and r.get("status") == "대출중"]
+
 def _pick_loan(isbn, saban=""):
     """반납할 대출 기록 하나를 고른다.
        반환 : (성공여부, 결과)  결과는 (줄번호, 대출기록) 또는 안내문
@@ -1883,11 +1894,16 @@ def _run_library():
             else:
                 name = c2.text_input("이름", key="co_name", placeholder="이름")
 
-            # 회사 이메일 (필수). 한 번 넣으면 다음부터 자동으로 채워집니다.
+            # 회사 이메일 : 구글 시트에 저장된 주소를 그대로 보여 주고 고치지 못하게 합니다.
+            # (시트에 이메일이 없는 분만 직접 적을 수 있습니다)
             _saved_mail = _member_email(saban)
-            email = c3.text_input("회사 이메일",
-                                  value=_saved_mail,
-                                  placeholder="hong@" + MAIL_DOMAIN)
+            if _saved_mail:
+                c3.text_input("회사 이메일", value=_saved_mail, disabled=True,
+                              key="co_mail_auto")
+                email = _saved_mail
+            else:
+                email = c3.text_input("회사 이메일", key="co_mail",
+                                      placeholder="hong@" + MAIL_DOMAIN)
 
             _isbn_typed = ""
             _go_scan = False
@@ -1961,11 +1977,23 @@ def _run_library():
 
         # ===== 반납 =====
         else:
-            ci_saban = st.text_input("반납자 사번 (같은 책 여러 권이 대출 중일 때만 필요)", key="ci_saban", placeholder="보통은 비워두어도 됩니다")
+            # 반납 화면에는 ISBN 칸만 둡니다.
+            # 같은 책을 여러 사람이 빌려 간 경우에만, 확인 화면에서 누구 것인지 고릅니다.
+            ci_saban = ""
             # 반납도 스캔하자마자 처리하지 않고, 한 번 더 확인합니다.
             _pendi = str(st.session_state.get("lib_ci_pend", "") or "")
             if _pendi:
                 _cb = _find_book(_pendi) or {}
+                _opens = _open_loans(_pendi)
+                if len(_opens) > 1:
+                    _who = {}
+                    for _o in _opens:
+                        _who["%s (%s) · 반납예정 %s" % (str(_o.get("name", "")),
+                                                    str(_o.get("saban", "")),
+                                                    str(_o.get("due_date", "")))] = str(_o.get("saban", ""))
+                    st.info("이 책은 %d분이 빌려 가셨습니다. 반납하시는 분을 골라 주세요." % len(_opens))
+                    _pickw = st.selectbox("반납하시는 분", list(_who.keys()), key="ci_who")
+                    ci_saban = _who.get(_pickw, "")
                 _got, _tg = _pick_loan(_pendi, ci_saban)
                 _rows = [("제목", str(_cb.get("title", "") or "-")),
                          ("ISBN", _pendi)]
@@ -1987,7 +2015,7 @@ def _run_library():
                         _foot = str(_tg)
                 _confirm_card("📗", "이 책을 반납하시는 것이 맞습니까?", _rows, _foot)
                 if _blocked and isinstance(_tg, dict) and _tg.get("need_saban"):
-                    st.info("위쪽 **반납자 사번** 칸에 사번을 넣은 뒤 [네, 반납합니다]를 눌러 주세요.")
+                    st.info("위에서 반납하시는 분을 고른 뒤 [네, 반납합니다]를 눌러 주세요.")
                 elif _blocked:
                     st.error("⚠️ %s" % _tg)
                 yc, nc = st.columns(2)
@@ -2026,9 +2054,9 @@ def _run_library():
                                                  type="primary")
                 if _goi:
                     _stage_scan("ci", manual)
-            st.markdown("<p class='lib-hint'>반납은 보통 책 바코드만 스캔하면 됩니다. 같은 책 여러 권이 동시에 "
-                        "대출 중일 때만 사번을 넣어 주세요. 스캔한 뒤에는 <b>한 번 더 확인</b>하고 "
-                        "[네, 반납합니다]를 눌러 주세요.</p>", unsafe_allow_html=True)
+            st.markdown("<p class='lib-hint'>책 바코드를 스캔하면 됩니다. "
+                        "스캔한 뒤에는 <b>한 번 더 확인</b>하고 [네, 반납합니다]를 눌러 주세요.</p>",
+                        unsafe_allow_html=True)
 
     # ---------------- 도서 검색 ----------------
     if menu == MENU[2]:
