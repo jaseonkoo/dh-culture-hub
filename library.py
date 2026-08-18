@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v27 (2026-07-30 · 오픈 준비)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v28 (2026-07-30 · 대출 화면 한 줄)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -1499,7 +1499,7 @@ def _detail_page(isbn):
                 with st.form(f"dt_res_{_norm_isbn(isbn)}", clear_on_submit=True):
                     rc1, rc2 = st.columns(2)
                     rs = rc1.text_input("사번")
-                    rn = rc2.text_input("이름")
+                    rn = rc2.text_input("이름 (처음 이용 시 1회)")
                     re_ = st.text_input("회사 이메일 (책이 들어오면 알려드립니다)",
                                         placeholder="hong@" + MAIL_DOMAIN)
                     if st.form_submit_button("예약 신청", use_container_width=True, type="primary"):
@@ -1857,47 +1857,62 @@ def _run_library():
                 pc1.markdown(
                     f"<div class='lib-note'>📕 <b>{_esc(ptitle)}</b> 을(를) 빌립니다."
                     f"<br><span class='lib-hint'>ISBN {_esc(prefill)}</span>"
-                    "<br>아래에 <b>사번</b>을 넣고 [대출하기]를 누르세요. 바코드는 찍지 않아도 됩니다.</div>",
+                    "<br>아래에 <b>사번</b>을 넣고 [확인 화면으로]를 누르세요. "
+                    "바코드는 찍지 않아도 됩니다.</div>",
                     unsafe_allow_html=True)
                 if pc2.button("취소", key="co_clear", use_container_width=True):
                     st.session_state.pop("lib_prefill_isbn", None)
                     st.session_state.pop("lib_prefill_title", None)
                     st.rerun()
 
-            c1, c2 = st.columns(2)
+            # 사번 · 이름 · 회사 이메일 · ISBN 을 한 줄에 나란히 놓습니다.
+            # (카메라를 쓸 때는 ISBN 칸 대신 아래에 카메라가 나옵니다)
+            _co_pending = bool(st.session_state.get("lib_co_pend"))
+            _wide = (not use_cam) and (not _co_pending)
+            if _wide:
+                c1, c2, c3, c4 = st.columns([1, 1, 2, 2])
+            else:
+                c1, c2, c3 = st.columns([1, 1, 2])
+                c4 = None
+
             saban = c1.text_input("사번", key="co_saban", placeholder="사번 입력")
             known = _member_name(saban)
             if known:
                 # 이미 한 번이라도 이용한 사번 → 이름을 자동으로 채워 보여준다.
                 c2.text_input("이름 (자동 입력됨)", value=known, disabled=True, key="co_name_auto")
                 name = known
-                c1.caption(f"👤 **{known}** 님, 반갑습니다.")
             else:
-                name = c2.text_input("이름", key="co_name", placeholder="이름")
-                if str(saban).strip():
-                    c1.caption("🆕 처음 보는 사번이에요. 오른쪽에 이름을 한 번만 적어 주세요. "
-                               "다음부터는 사번만 넣으면 이름이 자동으로 나옵니다.")
+                name = c2.text_input("이름 (처음 이용 시 1회)", key="co_name", placeholder="이름")
 
             # 회사 이메일 (필수). 한 번 넣으면 다음부터 자동으로 채워집니다.
             _saved_mail = _member_email(saban)
-            email = st.text_input("회사 이메일 *필수*  (반납 예정일·연체 안내를 받습니다)",
+            email = c3.text_input("회사 이메일 *필수*",
                                   value=_saved_mail,
                                   placeholder="hong@" + MAIL_DOMAIN)
-            _mail_ok = _company_mail(email)
-            _typed = str(email).strip()
-            if not _typed:
-                st.caption("✉️ 회사 이메일을 반드시 적어 주세요. "
-                           "`@` 앞의 아이디만 적으셔도 됩니다. (자동으로 @%s 가 붙습니다)" % MAIL_DOMAIN)
-            elif not _mail_ok:
+
+            _isbn_typed = ""
+            _go_scan = False
+            if c4 is not None:
+                with c4:
+                    with st.form("co_form", clear_on_submit=True):
+                        _isbn_typed = st.text_input("책 ISBN 바코드 (스캔 또는 직접 입력)",
+                                                    value=prefill)
+                        _go_scan = st.form_submit_button("확인 화면으로",
+                                                         use_container_width=True,
+                                                         type="primary")
+
+            if known:
+                st.caption("👤 **%s** 님, 반갑습니다." % known)
+            elif str(saban).strip():
+                st.caption("🆕 처음 보는 사번이에요. 이름을 한 번만 적어 주세요. "
+                           "다음부터는 사번만 넣으면 이름이 자동으로 나옵니다.")
+            if str(email).strip() and not _company_mail(email):
                 st.warning("이메일 주소를 확인해 주세요. %s  (예: hong@%s)" % (MAIL_RULE, MAIL_DOMAIN))
-            elif _saved_mail and _fix_mail(email) == _saved_mail:
-                st.caption("✉️ 저장된 이메일 **%s** 로 안내가 갑니다. 바꾸시려면 위 칸을 고쳐 주세요."
-                           % _fix_mail(email))
-            else:
-                st.caption("✉️ **%s** 로 안내가 갑니다." % _fix_mail(email))
             if not _mail_ready():
                 st.caption("⚠️ 아직 메일 보내는 계정이 설정되지 않아 안내 메일은 발송되지 않습니다. "
                            "(관리자 메뉴 → 📧 이메일 알림 설정)")
+            if _go_scan:
+                _stage_scan("co", _isbn_typed)
 
             # 스캔하자마자 바로 빌려지지 않습니다.
             # 먼저 '이 책이 맞습니까?' 하고 한 번 더 물어봅니다.
@@ -1943,17 +1958,7 @@ def _run_library():
                     _stage_scan("co", code)
                 elif img is not None and not code:
                     st.warning("바코드를 인식하지 못했어요. 조금 더 가까이서 다시 촬영해 주세요.")
-            else:
-                with st.form("co_form", clear_on_submit=True):
-                    manual = st.text_input("책 ISBN 바코드 (USB 스캐너로 스캔 또는 숫자 직접 입력)",
-                                           value=prefill)
-                    _go = st.form_submit_button("확인 화면으로", use_container_width=True,
-                                                type="primary")
-                if _go:
-                    _stage_scan("co", manual)
-            st.markdown("<p class='lib-hint'>USB 스캐너는 입력칸에 커서를 두고 스캔하면 자동 입력됩니다. "
-                        "스캔한 뒤에는 <b>책이 맞는지 한 번 더 확인</b>하고 [네, 대출합니다]를 눌러 주세요.</p>",
-                        unsafe_allow_html=True)
+            # (ISBN 칸은 위 한 줄 안에 들어가 있습니다)
 
         # ===== 반납 =====
         else:
