@@ -152,67 +152,159 @@ def go_to(page_name):
     st.rerun()
 
 
+# ==========================================
+# 🎨 메인 화면 꾸미기 (카드 디자인)
+# ==========================================
+PLATFORM_CSS = """
+<style>
+/* ----- 바탕과 글꼴 ----- */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
+.stApp { background:#F4F5F7; }
+html, body, .stApp, [data-testid="stAppViewContainer"] {
+  font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif; }
+
+/* ----- 머리말 ----- */
+.pf-hero h1 { margin:0; font-size:1.9rem; font-weight:900; letter-spacing:-.02em; color:#1B1F24; }
+.pf-hero p  { margin:10px 0 0; color:#5B6472; font-size:.98rem; }
+.pf-hero .bar { height:4px; width:60px; margin:18px 0 6px; border-radius:99px;
+  background:linear-gradient(90deg,#1F7A5A,#2F6FB5,#C8892A); }
+
+/* ----- 묶음 제목 (Community / Learning / Gamification) ----- */
+.pf-ghead { display:flex; align-items:center; gap:11px; margin:30px 0 12px; }
+.pf-chip { font-size:.7rem; font-weight:700; letter-spacing:.16em; text-transform:uppercase;
+  padding:5px 11px; border-radius:99px; white-space:nowrap; }
+.pf-gko { font-size:.9rem; color:#6B7480; font-weight:500; white-space:nowrap; }
+.pf-gline { flex:1; height:1px; background:#E1E4E9; }
+
+/* ----- 카드 ----- */
+.pf-card { position:relative; background:#fff; border:1px solid #E4E7EB; border-radius:14px;
+  padding:22px 20px 16px; box-shadow:0 1px 2px rgba(16,24,40,.04);
+  min-height:186px; margin-bottom:10px;
+  transition:transform .15s ease, box-shadow .15s ease; }
+.pf-card:hover { transform:translateY(-3px); box-shadow:0 12px 22px -12px rgba(16,24,40,.28); }
+.pf-card::before { content:""; position:absolute; left:0; top:16px; bottom:16px; width:3px;
+  border-radius:0 3px 3px 0; }
+.pf-ico { width:44px; height:44px; border-radius:12px; display:flex; align-items:center;
+  justify-content:center; font-size:1.35rem; margin-bottom:13px; }
+.pf-tt { font-weight:700; font-size:1.06rem; letter-spacing:-.01em; color:#1B1F24; }
+.pf-dd { margin-top:6px; color:#6B7480; font-size:.86rem; line-height:1.55; }
+.pf-beta { margin-left:7px; font-size:.66rem; font-weight:700; color:#B0782A;
+  background:#FAEFDC; padding:3px 7px; border-radius:99px; vertical-align:middle; }
+
+/* ----- 묶음별 색 ----- */
+.pf-a::before { background:#1F7A5A; } .pf-a .pf-ico { background:#E4F2EC; }
+.pf-b::before { background:#2F6FB5; } .pf-b .pf-ico { background:#E6EEF8; }
+.pf-c::before { background:#C8892A; } .pf-c .pf-ico { background:#FAEFDC; }
+.pf-chip-a { background:#E4F2EC; color:#1F7A5A; }
+.pf-chip-b { background:#E6EEF8; color:#2F6FB5; }
+.pf-chip-c { background:#FAEFDC; color:#B0782A; }
+
+/* ----- 카드 아래 [입장하기] 버튼 색 -----
+   (이름표를 못 붙이는 옛 버전에서는 기본 버튼 모양으로 나옵니다) */
+[class*="st-key-nav_a"] button, [class*="st-key-nav_b"] button,
+[class*="st-key-nav_c"] button {
+  color:#fff !important; font-weight:700 !important; border:0 !important;
+  border-radius:9px !important; padding:10px !important; }
+[class*="st-key-nav_a"] button { background:#1F7A5A !important; }
+[class*="st-key-nav_b"] button { background:#2F6FB5 !important; }
+[class*="st-key-nav_c"] button { background:#C8892A !important; }
+[class*="st-key-nav_a"] button:hover { background:#19634A !important; }
+[class*="st-key-nav_b"] button:hover { background:#265B95 !important; }
+[class*="st-key-nav_c"] button:hover { background:#A87121 !important; }
+
+/* ----- 바닥 ----- */
+.pf-foot { margin-top:34px; padding-top:16px; border-top:1px solid #E1E4E9;
+  color:#96A0AD; font-size:.84rem; }
+</style>
+"""
+
+# 카드 내용 : (페이지이름, 아이콘, 제목, 한 줄 설명, 베타여부)
+# 묶음 : (영문 이름, 우리말 설명, 색깔표시, 카드들)
+PLATFORM_MENU = [
+    ("Community", "함께 성장하기", "a", [
+        ("mentoring", "🤝", "동반성장 멘토링", "선배와 후배가 짝을 이뤄 함께 성장합니다", False),
+        ("leader", "☕", "성장지원 1:1 코칭", "리더와 구성원이 나누는 정기 1:1 대화", False),
+    ]),
+    ("Learning", "배우고 나누기", "b", [
+        ("class", "🎓", "직무 원데이 클래스", "동료의 직무 노하우를 배우는 사내 강의", False),
+        ("library", "📚", "사내 도서관", "바코드로 직접 빌리고 반납하는 사내 서가", False),
+    ]),
+    ("Gamification", "즐기며 익히기", "c", [
+        ("typing", "🎯", "핵심가치 타자연습", "핵심가치 문장을 타자로 익혀 봅니다", False),
+        ("tycoon", "🌾", "밸류체인 타이쿤", "사료 밸류체인을 직접 경영해 보는 게임", True),
+    ]),
+]
+
+PLATFORM_COLS = 3      # 👈 한 줄에 카드 몇 개를 놓을지
+
+
+def nav_box(name):
+    """버튼에 이름표를 붙여 두는 상자. (색을 입히기 위한 것)
+       이름표를 못 붙이는 옛 스트림릿에서도 오류 없이 넘어갑니다."""
+    try:
+        return st.container(key=name)
+    except Exception:
+        return st.container()
+
+
+def draw_card(ico, title, desc, accent, beta=False):
+    beta_html = "<span class='pf-beta'>Beta</span>" if beta else ""
+    st.markdown(
+        f"<div class='pf-card pf-{accent}'>"
+        f"<div class='pf-ico'>{ico}</div>"
+        f"<div class='pf-tt'>{title}{beta_html}</div>"
+        f"<div class='pf-dd'>{desc}</div>"
+        f"</div>", unsafe_allow_html=True)
+
+
 # --- [메인 화면] ---
 if st.session_state.page == "home":
     log_page_visit("home")
     total_visitors = get_total_visitors()
 
-    st.title("🚀 조직문화 활성화 통합 플랫폼")
-    st.markdown("---")
+    st.markdown(PLATFORM_CSS, unsafe_allow_html=True)
+    st.markdown(
+        "<div class='pf-hero'><h1>🚀 조직문화 활성화 통합 플랫폼</h1>"
+        "<p>대한사료 구성원이 함께 배우고 성장하는 공간입니다.</p>"
+        "<div class='bar'></div></div>", unsafe_allow_html=True)
 
-    # ✅ [수정] 메뉴 순서를 바꿨습니다.
-    #    1 동반성장 멘토링   2 성장지원 1:1 코칭
-    #    3 직무 원데이 클래스 4 사내 도서관
-    #    5 핵심가치 타자연습  6 밸류체인 타이쿤
-    row1_col1, row1_col2 = st.columns(2)
-    row2_col1, row2_col2 = st.columns(2)
-    row3_col1, row3_col2 = st.columns(2)
+    for label, ko, accent, cards in PLATFORM_MENU:
+        st.markdown(
+            f"<div class='pf-ghead'><span class='pf-chip pf-chip-{accent}'>{label}</span>"
+            f"<span class='pf-gko'>{ko}</span><span class='pf-gline'></span></div>",
+            unsafe_allow_html=True)
 
-    with row1_col1:
-        st.markdown("### 🤝 동반성장 멘토링")
-        if st.button("입장하기", key="btn_mentoring", use_container_width=True): go_to("mentoring")
+        cols = st.columns(PLATFORM_COLS)
+        for i, (page, ico, title, desc, beta) in enumerate(cards[:PLATFORM_COLS]):
+            with cols[i]:
+                draw_card(ico, title, desc, accent, beta)
 
-    with row1_col2:
-        st.markdown("### ☕ 성장지원 1:1 코칭")
-        if st.button("입장하기", key="btn_leader", use_container_width=True): go_to("leader")
+                if page == "tycoon":
+                    # 타이쿤은 아직 테스트 중이라 비밀번호가 필요합니다.
+                    # st.form 상자 안에 넣으면 '엔터'만 쳐도 입장합니다.
+                    with st.form("tycoon_gate", clear_on_submit=False):
+                        c_pw, c_btn = st.columns([2, 1])
+                        test_pw = c_pw.text_input("비밀번호", type="password", key="tycoon_pw",
+                                                  label_visibility="collapsed",
+                                                  placeholder="비밀번호 입력")
+                        go_tycoon = c_btn.form_submit_button("입장하기", use_container_width=True)
+                    # 판정은 폼 밖에서 합니다. (폼 안에서는 화면 이동을 하면 안 됩니다)
+                    if go_tycoon:
+                        if test_pw == "dhfeedhr":   # 👈 타이쿤 테스트용 비밀번호
+                            go_to("tycoon")
+                        elif test_pw == "":
+                            st.warning("비밀번호를 입력해 주세요.")
+                        else:
+                            st.error("비밀번호가 일치하지 않습니다.")
+                else:
+                    with nav_box("nav_%s_%s" % (accent, page)):
+                        if st.button("입장하기", key="btn_%s" % page,
+                                     use_container_width=True):
+                            go_to(page)
 
-    with row2_col1:
-        st.markdown("### 🎓 직무 원데이 클래스")
-        if st.button("입장하기", key="btn_class", use_container_width=True): go_to("class")
-
-    with row2_col2:
-        # ✅ [수정] 사내 도서관은 이제 비밀번호 없이 바로 들어갑니다.
-        st.markdown("### 📚 사내 도서관")
-        if st.button("입장하기", key="btn_library", use_container_width=True): go_to("library")
-
-    with row3_col1:
-        st.markdown("### 🎯 핵심가치 타자연습")
-        if st.button("입장하기", key="btn_typing", use_container_width=True): go_to("typing")
-
-    with row3_col2:
-        st.markdown("### 🌾 밸류체인 타이쿤 (Beta)")
-        st.caption("현재 테스트 중입니다. 비밀번호를 입력하고 **엔터**를 누르세요.")
-
-        # st.form 상자 안에 넣으면 '엔터'만 쳐도 입장합니다.
-        with st.form("tycoon_gate", clear_on_submit=False):
-            c_pw, c_btn = st.columns([2, 1])
-            test_pw = c_pw.text_input("비밀번호", type="password", key="tycoon_pw",
-                                      label_visibility="collapsed", placeholder="비밀번호 입력")
-            go_tycoon = c_btn.form_submit_button("입장하기", use_container_width=True)
-
-        # 판정은 폼 밖에서 합니다. (폼 안에서는 화면 이동을 하면 안 됩니다)
-        if go_tycoon:
-            if test_pw == "dhfeedhr":  # 👈 여기에 원하시는 테스트용 비밀번호를 적어주세요.
-                go_to("tycoon")
-            elif test_pw == "":
-                st.warning("비밀번호를 입력해 주세요.")
-            else:
-                st.error("비밀번호가 일치하지 않습니다.")
-
-    st.markdown("---")
-
-    # ✨ 명칭을 '누적 접속 횟수'로 변경하고, 단위도 '명'에서 '회'로 변경했습니다.
-    st.markdown(f"<span style='color: gray; font-size: 0.9em;'>📊 현재 누적 접속 횟수: {total_visitors}회</span>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div class='pf-foot'>📊 현재 누적 접속 횟수 : {total_visitors}회</div>",
+        unsafe_allow_html=True)
 
 # --- [각 프로그램 페이지 연결 및 통계 체크] ---
 elif st.session_state.page == "mentoring":
