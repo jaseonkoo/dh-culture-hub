@@ -23,7 +23,7 @@ except Exception:
     _SCAN_OK = False
 
 # ---------------- 설정값 ----------------
-LIB_VER    = "v26 (2026-07-30 · 버튼 폭 맞춤)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
+LIB_VER    = "v27 (2026-07-30 · 오픈 준비)"   # 👑 관리자 화면 맨 아래에 표시됩니다. 배포 확인용.
 LIB_DB     = "대한사료_도서관_DB"
 ADMIN_PW   = "dhfeed1947"    # 👈 관리자 비밀번호 (반드시 변경)
 
@@ -1338,6 +1338,7 @@ def _shelf_item(it, key):
             st.markdown("<div class='lib-btn-off'>대출 불가</div>", unsafe_allow_html=True)
 
 PER_ROW = 7      # 👈 한 줄에 몇 권씩 보여줄지. 숫자만 바꾸면 됩니다.
+TOP_N   = 7      # 👈 홈 화면 '가장 많이 읽은 책'을 몇 권까지 보여줄지.
 
 def _shelf(items, keyprefix, per_row=PER_ROW):
     """책장처럼 한 줄에 여러 권 + 아래에 나무 선반."""
@@ -1810,13 +1811,13 @@ def _run_library():
         else:
             _shelf([{"book": b} for b in recent], "recent")
 
-        _sec_title("가장 많이 읽은 책", "누적 대출 TOP 5")
+        _sec_title("가장 많이 읽은 책", "누적 대출 TOP %d" % TOP_N)
         counts = {}
         for l in home_loans:
             t = str(l.get("title", "")).strip()
             if t:
                 counts[t] = counts.get(t, 0) + 1
-        top = sorted(counts.items(), key=lambda x: -x[1])[:5]
+        top = sorted(counts.items(), key=lambda x: -x[1])[:TOP_N]
         if not top:
             st.info("아직 대출 기록이 없습니다.")
         else:
