@@ -160,30 +160,40 @@ if st.session_state.page == "home":
     st.title("🚀 조직문화 활성화 통합 플랫폼")
     st.markdown("---")
 
+    # ✅ [수정] 메뉴 순서를 바꿨습니다.
+    #    1 동반성장 멘토링   2 성장지원 1:1 코칭
+    #    3 직무 원데이 클래스 4 사내 도서관
+    #    5 핵심가치 타자연습  6 밸류체인 타이쿤
     row1_col1, row1_col2 = st.columns(2)
     row2_col1, row2_col2 = st.columns(2)
+    row3_col1, row3_col2 = st.columns(2)
 
     with row1_col1:
         st.markdown("### 🤝 동반성장 멘토링")
         if st.button("입장하기", key="btn_mentoring", use_container_width=True): go_to("mentoring")
+
     with row1_col2:
         st.markdown("### ☕ 성장지원 1:1 코칭")
         if st.button("입장하기", key="btn_leader", use_container_width=True): go_to("leader")
+
     with row2_col1:
         st.markdown("### 🎓 직무 원데이 클래스")
         if st.button("입장하기", key="btn_class", use_container_width=True): go_to("class")
 
     with row2_col2:
+        # ✅ [수정] 사내 도서관은 이제 비밀번호 없이 바로 들어갑니다.
+        st.markdown("### 📚 사내 도서관")
+        if st.button("입장하기", key="btn_library", use_container_width=True): go_to("library")
+
+    with row3_col1:
         st.markdown("### 🎯 핵심가치 타자연습")
         if st.button("입장하기", key="btn_typing", use_container_width=True): go_to("typing")
 
-    row3_col1, row3_col2 = st.columns(2)
-
-    with row3_col1:
+    with row3_col2:
         st.markdown("### 🌾 밸류체인 타이쿤 (Beta)")
         st.caption("현재 테스트 중입니다. 비밀번호를 입력하고 **엔터**를 누르세요.")
 
-        # ✅ [수정] st.form 상자 안에 넣으면 '엔터'만 쳐도 입장합니다.
+        # st.form 상자 안에 넣으면 '엔터'만 쳐도 입장합니다.
         with st.form("tycoon_gate", clear_on_submit=False):
             c_pw, c_btn = st.columns([2, 1])
             test_pw = c_pw.text_input("비밀번호", type="password", key="tycoon_pw",
@@ -199,27 +209,6 @@ if st.session_state.page == "home":
             else:
                 st.error("비밀번호가 일치하지 않습니다.")
 
-    with row3_col2:
-        st.markdown("### 📚 사내 도서관")
-        st.caption("비밀번호를 입력하고 **엔터**를 누르세요.")
-
-        # ✅ [수정] st.form 상자 안에 넣으면 '엔터'만 쳐도 입장합니다.
-        with st.form("library_gate", clear_on_submit=False):
-            l_pw, l_btn = st.columns([2, 1])
-            lib_pw = l_pw.text_input("비밀번호", type="password", key="library_pw",
-                                     label_visibility="collapsed", placeholder="비밀번호 입력")
-            go_library = l_btn.form_submit_button("입장하기", use_container_width=True)
-
-        if go_library:
-            if lib_pw == "dhfeedhr":  # 👈 타이쿤과 동일한 비밀번호 (원하면 여기만 바꾸면 됩니다)
-                go_to("library")
-            elif lib_pw == "":
-                st.warning("비밀번호를 입력해 주세요.")
-            else:
-                st.error("비밀번호가 일치하지 않습니다.")
-
-    # -----------------------------------------------------------------------------------
-    # ✅ [수정] 이 구분선이 오른쪽 칸(도서관) 안에 들어가 있었습니다. 밖으로 빼냈습니다.
     st.markdown("---")
 
     # ✨ 명칭을 '누적 접속 횟수'로 변경하고, 단위도 '명'에서 '회'로 변경했습니다.
