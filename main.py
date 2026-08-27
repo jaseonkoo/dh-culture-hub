@@ -1,20 +1,20 @@
 import streamlit as st
-import os
 import datetime
 import uuid
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# 쪼개진 개별 파일(모듈)들을 불러옵니다.
-import mentoring
-import leader
-import oneday
-import typing_game
-import tycoon_game
-import library
-
 # 페이지 기본 설정
 st.set_page_config(page_title="조직문화 활성화 Hub", page_icon="🏢", layout="wide")
+
+# ==========================================
+# ⚡ [속도 개선] 프로그램은 '누른 것만' 불러옵니다.
+#   예전에는 6개 프로그램을 전부 미리 불러와서 첫 화면이 느렸습니다.
+#   이제는 실제로 들어갈 때 그 프로그램 하나만 불러옵니다.
+# ==========================================
+def load_module(name):
+    import importlib
+    return importlib.import_module(name)
 
 
 # ==========================================
@@ -38,35 +38,92 @@ def get_visited_registry():
 
 
 # ==========================================
-# 📊 구글 시트 기반: 누적 접속 횟수 가져오기
+# ⚡ [속도 개선] 구글 시트 접속을 '한 번만' 합니다.
+#   예전에는 화면을 열 때마다 구글에 새로 로그인했습니다. (한 번에 1~2초)
+#   이제는 서버가 켜져 있는 동안 한 번만 로그인하고 그대로 다시 씁니다.
 # ==========================================
-@st.cache_data(ttl=60, show_spinner=False)
-def get_total_visitors():
-    try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
-                 "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
-        client = gspread.authorize(creds)
-        doc = client.open("대한사료_통합통계_DB")
-        ws = doc.worksheet("접속통계")
-        records = ws.get_all_records()
+SCOPE = ["https://spreadsheets.google.com/feeds",
+         "https://www.googleapis.com/auth/spreadsheets",
+         "https://www.googleapis.com/auth/drive.file",
+         "https://www.googleapis.com/auth/drive"]
 
-        # '메인' 열에 기록된 모든 일자의 접속 횟수를 합산합니다.
-        total = sum(int(r.get("메인", 0)) for r in records if str(r.get("메인", 0)).isdigit())
+STAT_DB = "대한사료_통합통계_DB"
+STAT_TAB = "접속통계"
+STAT_HEADERS = ["날짜", "메인", "멘토링", "리더대화", "원데이클래스", "타자연습", "타이쿤", "도서관"]
+COL_MAP = {"home": 2, "mentoring": 3, "leader": 4, "class": 5,
+           "typing": 6, "tycoon": 7, "library": 8}
+
+
+@st.cache_resource(show_spinner=False)
+def get_gs_client():
+    """구글 로그인은 서버당 한 번만."""
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(
+        st.secrets["gcp_service_account"], SCOPE)
+    return gspread.authorize(creds)
+
+
+@st.cache_resource(show_spinner=False)
+def get_stat_ws():
+    """접속통계 탭 손잡이. 열 이름 점검도 여기서 딱 한 번만 합니다."""
+    client = get_gs_client()
+    doc = client.open(STAT_DB)
+    try:
+        ws = doc.worksheet(STAT_TAB)
+    except gspread.exceptions.WorksheetNotFound:
+        ws = doc.add_worksheet(STAT_TAB, 1000, 10)
+        ws.append_row(STAT_HEADERS)
+        return ws
+    # 예전 시트에는 '타이쿤', '도서관' 열이 없습니다. 없으면 만들어 줍니다.
+    try:
+        hdr = ws.row_values(1)
+        if len(hdr) < len(STAT_HEADERS):
+            for i in range(len(hdr), len(STAT_HEADERS)):
+                ws.update_cell(1, i + 1, STAT_HEADERS[i])
+    except Exception:
+        pass
+    return ws
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_today_row(today_str):
+    """오늘 날짜가 시트 몇 번째 줄인지. (없으면 0)
+       ⚡ 예전에는 시트를 통째로 읽었는데, 이제 '날짜 열' 하나만 읽습니다."""
+    try:
+        dates = get_stat_ws().col_values(1)
+    except Exception:
+        return 0
+    for i, d in enumerate(dates):
+        if str(d).strip() == today_str:
+            return i + 1          # 시트 줄 번호 (1부터)
+    return 0
+
+
+# ==========================================
+# 📊 누적 접속 횟수
+# ==========================================
+@st.cache_data(ttl=300, show_spinner=False)
+def get_total_visitors():
+    """⚡ 시트를 통째로 읽지 않고 '메인' 열 하나만 읽어서 더합니다."""
+    try:
+        col = get_stat_ws().col_values(COL_MAP["home"])
+        total = 0
+        for v in col[1:]:                     # 첫 줄은 열 이름
+            s = str(v).strip().replace(",", "")
+            if s.isdigit():
+                total += int(s)
         return total
-    except:
+    except Exception:
+        try:
+            get_stat_ws.clear()
+            get_gs_client.clear()
+        except Exception:
+            pass
         return 0
 
 
-# ==========================================
-# 📊 구글 시트 일별/페이지별 실시간 통계 기록 로직
-# ==========================================
-# ✅ [수정] 통계 시트의 열 이름을 한 곳에 모아 두었습니다.
-#          아래 col_map 의 순서와 반드시 같아야 합니다.
-STAT_HEADERS = ["날짜", "메인", "멘토링", "리더대화", "원데이클래스", "타자연습", "타이쿤", "도서관"]
-
-
 def log_page_visit(page_name):
+    """오늘 이 사람이 이 화면을 처음 열었을 때만 1을 더합니다.
+       ⚡ 구글 호출을 6번 → 2번으로 줄였습니다."""
     today_str = str(datetime.date.today())
     client_id = get_client_identifier()
     registry = get_visited_registry()
@@ -81,67 +138,45 @@ def log_page_visit(page_name):
     if page_name not in registry[today_str]:
         registry[today_str][page_name] = set()
 
-    # 💡 철벽 방어 1단계: 오늘 이 페이지 출석부에 내 지문이 있으면 곧바로 패스!
+    # 💡 오늘 이 페이지 출석부에 내 지문이 있으면 곧바로 패스! (구글 접속 안 함)
     if client_id in registry[today_str][page_name]:
         return
 
-    # 🚀 철벽 방어 2단계: 구글 시트 통신(느림) 전에 무조건 출석부에 이름부터 올립니다! (F5 연타 차단)
+    # 🚀 구글 시트 통신(느림) 전에 무조건 출석부에 이름부터 올립니다. (F5 연타 차단)
     registry[today_str][page_name].add(client_id)
 
+    col_idx = COL_MAP.get(page_name)
+    if not col_idx:
+        return
+
     try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
-                 "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], scope)
-        client = gspread.authorize(creds)
-        doc = client.open("대한사료_통합통계_DB")
-
-        try:
-            ws = doc.worksheet("접속통계")
-        except gspread.exceptions.WorksheetNotFound:
-            ws = doc.add_worksheet("접속통계", 1000, 10)
-            ws.append_row(STAT_HEADERS)
-
-        # ✅ [수정] 예전에 만든 시트에는 '타이쿤', '도서관' 열이 없습니다.
-        #          없으면 맨 오른쪽에 자동으로 만들어 줍니다. (기존 값은 그대로)
-        try:
-            hdr = ws.row_values(1)
-            if len(hdr) < len(STAT_HEADERS):
-                for i in range(len(hdr), len(STAT_HEADERS)):
-                    ws.update_cell(1, i + 1, STAT_HEADERS[i])
-        except:
-            pass
-
-        records = ws.get_all_records()
-        col_map = {"home": 2, "mentoring": 3, "leader": 4, "class": 5, "typing": 6, "tycoon": 7, "library": 8}
-        col_idx = col_map.get(page_name)
-        if not col_idx:
-            return
-
-        row_idx = None
-        for i, rec in enumerate(records):
-            if str(rec.get("날짜")) == today_str:
-                row_idx = i + 2
-                break
+        ws = get_stat_ws()
+        row_idx = get_today_row(today_str)
 
         if row_idx:
             current_val = ws.cell(row_idx, col_idx).value
-            new_val = int(current_val) + 1 if current_val else 1
+            new_val = int(current_val) + 1 if str(current_val or "").strip().isdigit() else 1
             ws.update_cell(row_idx, col_idx, new_val)
         else:
-            # ✅ [수정] 예전에는 칸이 6개뿐이라 타이쿤·도서관 기록이 저장되지 않았습니다.
             new_row = [today_str] + [0] * (len(STAT_HEADERS) - 1)
             new_row[col_idx - 1] = 1
             ws.append_row(new_row)
+            get_today_row.clear()      # 새 줄이 생겼으니 줄 번호를 다시 찾게 합니다.
 
         if page_name == "home":
             get_total_visitors.clear()
-
-    except:
-        pass
+    except Exception:
+        # 구글 연결이 오래되어 끊겼을 수 있으니, 다음 번에 새로 연결하도록 비웁니다.
+        try:
+            get_stat_ws.clear()
+            get_gs_client.clear()
+            get_today_row.clear()
+        except Exception:
+            pass
 
 
 # ==========================================
-# 📱 메인 화면 및 페이지 이동 로직
+# 📱 페이지 이동 로직
 # ==========================================
 if "page" not in st.session_state:
     st.session_state.page = "home"
@@ -153,8 +188,22 @@ def go_to(page_name):
 
 
 # ==========================================
-# 🎨 메인 화면 꾸미기 (카드 디자인)
+# 🎨 공통 꾸미기
+#   ⚡ [잔상 개선] 화면이 바뀌는 동안 옛 화면이 흐리게 남아 보이던 문제를
+#      없애고, 배경색을 맨 처음부터 정해 둡니다.
 # ==========================================
+BASE_CSS = """
+<style>
+/* 화면을 다시 그리는 동안 옛 내용이 흐릿하게 겹쳐 보이지 않게 합니다. */
+[data-stale="true"], .stale-element,
+[data-testid="stAppViewContainer"] [data-stale="true"] {
+  opacity: 1 !important; filter: none !important; transition: none !important;
+}
+/* 화면 전환 때 깜빡임을 줄입니다. */
+[data-testid="stAppViewContainer"] { transition: none !important; }
+</style>
+"""
+
 PLATFORM_CSS = """
 <style>
 /* ----- 바탕과 글꼴 ----- */
@@ -257,11 +306,18 @@ def draw_card(ico, title, desc, accent, beta=False):
         f"</div>", unsafe_allow_html=True)
 
 
-# --- [메인 화면] ---
-if st.session_state.page == "home":
-    log_page_visit("home")
-    total_visitors = get_total_visitors()
+def back_button(key=None):
+    if st.button("⬅️ 플랫폼 메인으로 나가기", key=key):
+        go_to("home")
 
+
+# 어느 화면에서든 잔상 방지 꾸미기를 먼저 넣습니다.
+st.markdown(BASE_CSS, unsafe_allow_html=True)
+
+page = st.session_state.page
+
+# --- [메인 화면] ---
+if page == "home":
     st.markdown(PLATFORM_CSS, unsafe_allow_html=True)
     st.markdown(
         "<div class='pf-hero'><h1>🚀 조직문화 활성화 통합 플랫폼</h1>"
@@ -275,11 +331,11 @@ if st.session_state.page == "home":
             unsafe_allow_html=True)
 
         cols = st.columns(PLATFORM_COLS)
-        for i, (page, ico, title, desc, beta) in enumerate(cards[:PLATFORM_COLS]):
+        for i, (pg, ico, title, desc, beta) in enumerate(cards[:PLATFORM_COLS]):
             with cols[i]:
                 draw_card(ico, title, desc, accent, beta)
 
-                if page == "tycoon":
+                if pg == "tycoon":
                     # 타이쿤은 아직 테스트 중이라 비밀번호가 필요합니다.
                     # st.form 상자 안에 넣으면 '엔터'만 쳐도 입장합니다.
                     with st.form("tycoon_gate", clear_on_submit=False):
@@ -297,44 +353,44 @@ if st.session_state.page == "home":
                         else:
                             st.error("비밀번호가 일치하지 않습니다.")
                 else:
-                    with nav_box("nav_%s_%s" % (accent, page)):
-                        if st.button("입장하기", key="btn_%s" % page,
+                    with nav_box("nav_%s_%s" % (accent, pg)):
+                        if st.button("입장하기", key="btn_%s" % pg,
                                      use_container_width=True):
-                            go_to(page)
+                            go_to(pg)
 
     st.markdown(
-        f"<div class='pf-foot'>📊 현재 누적 접속 횟수 : {total_visitors}회</div>",
+        f"<div class='pf-foot'>📊 현재 누적 접속 횟수 : {get_total_visitors()}회</div>",
         unsafe_allow_html=True)
 
-# --- [각 프로그램 페이지 연결 및 통계 체크] ---
-elif st.session_state.page == "mentoring":
-    log_page_visit("mentoring")
-    if st.button("⬅️ 플랫폼 메인으로 나가기"): go_to("home")
-    mentoring.run_mentoring()
+# --- [각 프로그램 페이지] ---
+elif page == "mentoring":
+    back_button()
+    load_module("mentoring").run_mentoring()
 
-elif st.session_state.page == "leader":
-    log_page_visit("leader")
-    if st.button("⬅️ 플랫폼 메인으로 나가기"): go_to("home")
-    leader.run_leader_talk()
+elif page == "leader":
+    back_button()
+    load_module("leader").run_leader_talk()
 
-elif st.session_state.page == "class":
-    log_page_visit("class")
-    if st.button("⬅️ 플랫폼 메인으로 나가기"): go_to("home")
-    oneday.run_class()
+elif page == "class":
+    back_button()
+    load_module("oneday").run_class()
 
-elif st.session_state.page == "typing":
-    log_page_visit("typing")
-    if st.button("⬅️ 플랫폼 메인으로 나가기"): go_to("home")
-    typing_game.run_typing_game()
+elif page == "typing":
+    back_button()
+    load_module("typing_game").run_typing_game()
 
-elif st.session_state.page == "tycoon":
-    log_page_visit("tycoon")
-    if st.button("⬅️ 플랫폼 메인으로 나가기"): go_to("home")
-    tycoon_game.run_tycoon_game()
+elif page == "tycoon":
+    back_button()
+    load_module("tycoon_game").run_tycoon_game()
 
-elif st.session_state.page == "library":
-    log_page_visit("library")
-    # ✅ [수정] 도서관 안에도 '돌아가기' 버튼이 있어서 헷갈렸습니다.
-    #          이 버튼은 '플랫폼 메인으로 나가는' 버튼이라고 분명히 적어 둡니다.
-    if st.button("⬅️ 플랫폼 메인으로 나가기", key="btn_out_library"): go_to("home")
-    library.run_library()
+elif page == "library":
+    # 도서관 안에도 '돌아가기' 버튼이 있어서, 이 버튼은 '플랫폼 메인으로
+    # 나가는' 버튼이라고 분명히 적어 둡니다.
+    back_button(key="btn_out_library")
+    load_module("library").run_library()
+
+# ==========================================
+# ⚡ [속도 개선] 접속 기록은 화면을 다 그린 '뒤에' 남깁니다.
+#   예전에는 기록을 먼저 하느라 화면이 그만큼 늦게 떴습니다.
+# ==========================================
+log_page_visit(page)
