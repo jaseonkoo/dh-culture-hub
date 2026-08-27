@@ -302,18 +302,18 @@ def back_button(key=None):
 page = st.session_state.page
 
 
-def page_box(name):
-    """화면 전체를 '이름표가 붙은 상자'에 담습니다.
-       이렇게 하면 스트림릿이 이전 화면의 조각을 재활용하지 않고 새로 그려서,
-       도서관 머리말이 메인 화면에 남아 보이는 문제가 생기지 않습니다.
-       (이름표를 못 붙이는 옛 버전에서도 오류 없이 넘어갑니다)"""
-    try:
-        return st.container(key="pg_%s" % name)
-    except Exception:
-        return st.container()
+# ==========================================
+# 🧹 [잔상 해결] 화면 전체를 '자리(holder)' 하나에 담습니다.
+#   화면이 바뀌는 순간 그 자리를 먼저 비우기 때문에,
+#   새 화면을 불러오는 동안 옛 화면이 남아 보이지 않습니다.
+# ==========================================
+holder = st.empty()
 
+if st.session_state.get("_pg_shown") != page:
+    holder.empty()                       # 👈 이전 화면을 즉시 지웁니다
+    st.session_state["_pg_shown"] = page
 
-with page_box(page):
+with holder.container():
 
     # --- [메인 화면] ---
     if page == "home":
