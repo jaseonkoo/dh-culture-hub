@@ -189,28 +189,16 @@ def go_to(page_name):
 
 # ==========================================
 # 🎨 공통 꾸미기
-#   ⚡ [잔상 개선] 화면이 바뀌는 동안 옛 화면이 흐리게 남아 보이던 문제를
-#      없애고, 배경색을 맨 처음부터 정해 둡니다.
 # ==========================================
-BASE_CSS = """
-<style>
-/* 화면을 다시 그리는 동안 옛 내용이 흐릿하게 겹쳐 보이지 않게 합니다. */
-[data-stale="true"], .stale-element,
-[data-testid="stAppViewContainer"] [data-stale="true"] {
-  opacity: 1 !important; filter: none !important; transition: none !important;
-}
-/* 화면 전환 때 깜빡임을 줄입니다. */
-[data-testid="stAppViewContainer"] { transition: none !important; }
-</style>
-"""
-
 PLATFORM_CSS = """
 <style>
 /* ----- 바탕과 글꼴 ----- */
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
-.stApp { background:#F4F5F7; }
+/* 도서관 화면에서 돌아왔을 때 크림색 배경이 남지 않도록 !important 로 못 박습니다. */
+.stApp, [data-testid="stAppViewContainer"] {
+  background:#F4F5F7 !important; background-image:none !important; }
 html, body, .stApp, [data-testid="stAppViewContainer"] {
-  font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif; }
+  font-family:'Noto Sans KR','Malgun Gothic','맑은 고딕',sans-serif !important; }
 
 /* ----- 머리말 ----- */
 .pf-hero h1 { margin:0; font-size:1.9rem; font-weight:900; letter-spacing:-.02em; color:#1B1F24; }
@@ -311,86 +299,97 @@ def back_button(key=None):
         go_to("home")
 
 
-# 어느 화면에서든 잔상 방지 꾸미기를 먼저 넣습니다.
-st.markdown(BASE_CSS, unsafe_allow_html=True)
-
 page = st.session_state.page
 
-# --- [메인 화면] ---
-if page == "home":
-    st.markdown(PLATFORM_CSS, unsafe_allow_html=True)
-    st.markdown(
-        "<div class='pf-hero'><h1>🚀 조직문화 활성화 통합 플랫폼</h1>"
-        "<p>대한사료 구성원이 함께 배우고 성장하는 공간입니다.</p>"
-        "<div class='bar'></div></div>", unsafe_allow_html=True)
 
-    for label, ko, accent, cards in PLATFORM_MENU:
+def page_box(name):
+    """화면 전체를 '이름표가 붙은 상자'에 담습니다.
+       이렇게 하면 스트림릿이 이전 화면의 조각을 재활용하지 않고 새로 그려서,
+       도서관 머리말이 메인 화면에 남아 보이는 문제가 생기지 않습니다.
+       (이름표를 못 붙이는 옛 버전에서도 오류 없이 넘어갑니다)"""
+    try:
+        return st.container(key="pg_%s" % name)
+    except Exception:
+        return st.container()
+
+
+with page_box(page):
+
+    # --- [메인 화면] ---
+    if page == "home":
+        st.markdown(PLATFORM_CSS, unsafe_allow_html=True)
         st.markdown(
-            f"<div class='pf-ghead'><span class='pf-chip pf-chip-{accent}'>{label}</span>"
-            f"<span class='pf-gko'>{ko}</span><span class='pf-gline'></span></div>",
+            "<div class='pf-hero'><h1>🚀 조직문화 활성화 통합 플랫폼</h1>"
+            "<p>대한사료 구성원이 함께 배우고 성장하는 공간입니다.</p>"
+            "<div class='bar'></div></div>", unsafe_allow_html=True)
+
+        for label, ko, accent, cards in PLATFORM_MENU:
+            st.markdown(
+                f"<div class='pf-ghead'><span class='pf-chip pf-chip-{accent}'>{label}</span>"
+                f"<span class='pf-gko'>{ko}</span><span class='pf-gline'></span></div>",
+                unsafe_allow_html=True)
+
+            cols = st.columns(PLATFORM_COLS)
+            for i, (pg, ico, title, desc, beta) in enumerate(cards[:PLATFORM_COLS]):
+                with cols[i]:
+                    draw_card(ico, title, desc, accent, beta)
+
+                    if pg == "tycoon":
+                        # 타이쿤은 아직 테스트 중이라 비밀번호가 필요합니다.
+                        # st.form 상자 안에 넣으면 '엔터'만 쳐도 입장합니다.
+                        with st.form("tycoon_gate", clear_on_submit=False):
+                            c_pw, c_btn = st.columns([2, 1])
+                            test_pw = c_pw.text_input("비밀번호", type="password", key="tycoon_pw",
+                                                      label_visibility="collapsed",
+                                                      placeholder="비밀번호 입력")
+                            go_tycoon = c_btn.form_submit_button("입장하기", use_container_width=True)
+                        # 판정은 폼 밖에서 합니다. (폼 안에서는 화면 이동을 하면 안 됩니다)
+                        if go_tycoon:
+                            if test_pw == "dhfeedhr":   # 👈 타이쿤 테스트용 비밀번호
+                                go_to("tycoon")
+                            elif test_pw == "":
+                                st.warning("비밀번호를 입력해 주세요.")
+                            else:
+                                st.error("비밀번호가 일치하지 않습니다.")
+                    else:
+                        with nav_box("nav_%s_%s" % (accent, pg)):
+                            if st.button("입장하기", key="btn_%s" % pg,
+                                         use_container_width=True):
+                                go_to(pg)
+
+        st.markdown(
+            f"<div class='pf-foot'>📊 현재 누적 접속 횟수 : {get_total_visitors()}회</div>",
             unsafe_allow_html=True)
 
-        cols = st.columns(PLATFORM_COLS)
-        for i, (pg, ico, title, desc, beta) in enumerate(cards[:PLATFORM_COLS]):
-            with cols[i]:
-                draw_card(ico, title, desc, accent, beta)
+    # --- [각 프로그램 페이지] ---
+    elif page == "mentoring":
+        back_button()
+        load_module("mentoring").run_mentoring()
 
-                if pg == "tycoon":
-                    # 타이쿤은 아직 테스트 중이라 비밀번호가 필요합니다.
-                    # st.form 상자 안에 넣으면 '엔터'만 쳐도 입장합니다.
-                    with st.form("tycoon_gate", clear_on_submit=False):
-                        c_pw, c_btn = st.columns([2, 1])
-                        test_pw = c_pw.text_input("비밀번호", type="password", key="tycoon_pw",
-                                                  label_visibility="collapsed",
-                                                  placeholder="비밀번호 입력")
-                        go_tycoon = c_btn.form_submit_button("입장하기", use_container_width=True)
-                    # 판정은 폼 밖에서 합니다. (폼 안에서는 화면 이동을 하면 안 됩니다)
-                    if go_tycoon:
-                        if test_pw == "dhfeedhr":   # 👈 타이쿤 테스트용 비밀번호
-                            go_to("tycoon")
-                        elif test_pw == "":
-                            st.warning("비밀번호를 입력해 주세요.")
-                        else:
-                            st.error("비밀번호가 일치하지 않습니다.")
-                else:
-                    with nav_box("nav_%s_%s" % (accent, pg)):
-                        if st.button("입장하기", key="btn_%s" % pg,
-                                     use_container_width=True):
-                            go_to(pg)
+    elif page == "leader":
+        back_button()
+        load_module("leader").run_leader_talk()
 
-    st.markdown(
-        f"<div class='pf-foot'>📊 현재 누적 접속 횟수 : {get_total_visitors()}회</div>",
-        unsafe_allow_html=True)
+    elif page == "class":
+        back_button()
+        load_module("oneday").run_class()
 
-# --- [각 프로그램 페이지] ---
-elif page == "mentoring":
-    back_button()
-    load_module("mentoring").run_mentoring()
+    elif page == "typing":
+        back_button()
+        load_module("typing_game").run_typing_game()
 
-elif page == "leader":
-    back_button()
-    load_module("leader").run_leader_talk()
+    elif page == "tycoon":
+        back_button()
+        load_module("tycoon_game").run_tycoon_game()
 
-elif page == "class":
-    back_button()
-    load_module("oneday").run_class()
-
-elif page == "typing":
-    back_button()
-    load_module("typing_game").run_typing_game()
-
-elif page == "tycoon":
-    back_button()
-    load_module("tycoon_game").run_tycoon_game()
-
-elif page == "library":
-    # 도서관 안에도 '돌아가기' 버튼이 있어서, 이 버튼은 '플랫폼 메인으로
-    # 나가는' 버튼이라고 분명히 적어 둡니다.
-    back_button(key="btn_out_library")
-    load_module("library").run_library()
+    elif page == "library":
+        # 도서관 안에도 '돌아가기' 버튼이 있어서, 이 버튼은 '플랫폼 메인으로
+        # 나가는' 버튼이라고 분명히 적어 둡니다.
+        back_button(key="btn_out_library")
+        load_module("library").run_library()
 
 # ==========================================
 # ⚡ [속도 개선] 접속 기록은 화면을 다 그린 '뒤에' 남깁니다.
-#   예전에는 기록을 먼저 하느라 화면이 그만큼 늦게 떴습니다.
+#   예전에는 기록을 먼저 하느라 그만큼 화면이 늦게 떴습니다.
 # ==========================================
 log_page_visit(page)
