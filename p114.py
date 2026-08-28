@@ -181,6 +181,41 @@ def _col(row, *names):
     return ""
 
 
+def _map_group(gubun, position):
+    """구분(gubun) + 직급(position) 을 합쳐서 7개 순위 부문 중 하나로 맞춥니다.
+       예) 일반직 + 부장  →  일반직 부장
+           지원직 + 주임  →  지원직 대리·주임"""
+    g = str(gubun or "").strip()
+    p = str(position or "").strip()
+    if not g and not p:
+        return ""
+
+    cand = ("%s %s" % (g, p)).strip()
+    if cand in RANK_GROUPS:
+        return cand
+
+    # 띄어쓰기만 다른 경우도 찾아 줍니다.
+    flat = cand.replace(" ", "")
+    for r in RANK_GROUPS:
+        if r.replace(" ", "") == flat:
+            return r
+
+    # 지원직의 대리·주임은 한 부문으로 묶습니다.
+    if g.startswith("지원"):
+        if p in ("대리", "주임", "대리·주임", "대리/주임", "주임·대리"):
+            return "지원직 대리·주임"
+        if p in ("사원",):
+            return "지원직 사원"
+    if g.startswith("일반"):
+        if p in ("부장", "차장", "과장", "대리", "사원"):
+            return "일반직 " + p
+
+    # 구분 없이 직급만 적혀 있는 경우 (일반직으로 봅니다)
+    if not g and p in ("부장", "차장", "과장", "대리", "사원"):
+        return "일반직 " + p
+    return ""
+
+
 def find_member(saban, name):
     """members 시트에서 사번+이름이 맞는 사람을 찾습니다."""
     saban = str(saban).strip()
@@ -191,11 +226,20 @@ def find_member(saban, name):
         s = _col(r, "사번", "사원번호", "사번호", "saban", "employee_id", "id")
         n = _col(r, "이름", "성명", "name")
         if s == saban and n == name:
+            gubun = _col(r, "gubun", "구분", "직군", "고용구분")
+            position = _col(r, "position", "직급", "직위", "rank", "grade")
+            group = _map_group(gubun, position)
+            if not group:
+                # 한 칸에 '일반직 부장' 처럼 통째로 적혀 있는 경우
+                group = _map_group("", _col(r, "순위부문", "부문")) or \
+                        _map_group(*(_col(r, "직급", "position").split(" ", 1) + [""])[:2])
             return {
                 "saban": s,
                 "name": n,
                 "team": _col(r, "소속팀", "팀명", "부서", "team", "dept"),
-                "group": _col(r, "직급", "직위", "rank", "position", "grade"),
+                "gubun": gubun,
+                "position": position,
+                "group": group,
             }
     return None
 
@@ -444,16 +488,24 @@ def _run_114_challenge():
                                 const ins  = doc.querySelectorAll('input[aria-label^="타이핑"]');
                                 let focusIdx = -1;
                                 let onMine = false;
+                                let activeIdx = -1;
+                                let okMap = [];
 
                                 for (let k = 0; k < ins.length; k++) {{
-                                    if (doc.activeElement === ins[k]) onMine = true;
+                                    if (doc.activeElement === ins[k]) {{ onMine = true; activeIdx = k; }}
 
                                     if (!ins[k].dataset.setupDone) {{
                                         const block = e => {{ e.preventDefault(); alert("⚠️ 꼼수 금지! 직접 치세요."); }};
                                         ins[k].addEventListener('paste', block);
                                         ins[k].addEventListener('drop', block);
                                         ins[k].addEventListener('keydown', e => {{
-                                            if (e.key !== 'Enter' && e.key !== 'Tab') {{
+                                            if (e.key === 'Enter') {{
+                                                // 👉 엔터를 누르면 아래 입력칸으로 커서를 옮깁니다.
+                                                const all = doc.querySelectorAll('input[aria-label^="타이핑"]');
+                                                if (k + 1 < all.length) {{
+                                                    setTimeout(() => {{ try {{ all[k + 1].focus(); }} catch(x) {{}} }}, 30);
+                                                }}
+                                            }} else if (e.key !== 'Tab') {{
                                                 if (!sessionStorage.getItem('p114StartTime')) {{
                                                     sessionStorage.setItem('p114StartTime', Date.now());
                                                 }}
@@ -476,12 +528,20 @@ def _run_114_challenge():
                                             spans[i].className = 'pch';
                                         }}
                                     }}
+                                    okMap[k] = allok;
                                     if (allok) tgts[k].classList.add('done');
                                     else {{ tgts[k].classList.remove('done'); if (focusIdx < 0) focusIdx = k; }}
                                 }}
 
-                                // 아직 우리 입력칸에 커서가 없을 때만 자동으로 옮깁니다.
-                                if (!onMine && focusIdx >= 0 && ins[focusIdx]) ins[focusIdx].focus();
+                                // ① 아직 우리 입력칸에 커서가 없으면 → 안 끝난 칸으로
+                                if (!onMine && focusIdx >= 0 && ins[focusIdx]) {{
+                                    ins[focusIdx].focus();
+                                }}
+                                // ② 이미 다 친 칸에 커서가 있으면 → 안 끝난 칸으로 옮깁니다.
+                                else if (onMine && activeIdx >= 0 && okMap[activeIdx]
+                                         && focusIdx >= 0 && ins[focusIdx]) {{
+                                    ins[focusIdx].focus();
+                                }}
                             }} catch(err) {{ }}
                         }}, 80);
                     }}
