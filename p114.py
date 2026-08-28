@@ -366,6 +366,29 @@ P114_CSS = """
 .p-gold { color: #D4AF37; font-size: 1.5em; font-weight: bold; }
 .p-silver { color: #A9A9A9; font-size: 1.3em; font-weight: bold; }
 .p-bronze { color: #CD7F32; font-size: 1.1em; font-weight: bold; }
+.p-num { color: #64748b; font-size: 1.05em; font-weight: 800; }
+
+/* 순위 카드 (1~5위를 한 줄에) */
+.p-top { border:2px solid #efefef; border-radius:15px; background:#fff;
+         box-shadow:0 4px 12px rgba(0,0,0,.08); padding:20px 8px 16px;
+         text-align:center; }
+.p-top .nm { font-size:1.3em; font-weight:800; color:#1e293b; margin:10px 0 3px;
+             word-break:keep-all; line-height:1.3; }
+.p-top .tm { font-size:.85em; color:#64748b; font-weight:500; line-height:1.35;
+             word-break:keep-all; }
+.p-top .gp { font-size:.8em; color:#2F6FB5; font-weight:700; margin:3px 0 12px;
+             word-break:keep-all; }
+.p-top .sc { font-size:1.3em; font-weight:bold; color:#ff4b4b;
+             background:#fff1f1; border-radius:8px; padding:6px 0; }
+
+/* 직급별 참여 현황 : 모든 칸 너비를 똑같이 */
+.p-tbl { width:100%; table-layout:fixed; border-collapse:collapse;
+         font-size:.9rem; margin-top:6px; }
+.p-tbl th, .p-tbl td { width:20%; border:1px solid #E4E7EB; padding:10px 8px;
+         text-align:center; vertical-align:middle; word-break:keep-all; }
+.p-tbl th { background:#F1F5F9; font-weight:700; color:#334155; }
+.p-tbl td.gp { font-weight:700; color:#1B3B6F; background:#FAFCFF; }
+.p-tbl td.empty { color:#C4CBD4; }
 .p-goal { background: linear-gradient(135deg,#1B3B6F,#2F6FB5); color:#fff;
           border-radius: 14px; padding: 22px 24px; margin-bottom: 18px; }
 .p-goal h3 { margin:0 0 10px; font-size:1.25rem; }
@@ -408,6 +431,15 @@ def _run_114_challenge():
     # 🎮 게임
     # =========================================================
     with tab1:
+        _game_tab()
+
+    with tab2:
+        _rank_tab()
+
+
+def _game_tab():
+    """🎮 게임 탭. (여기서 return 해도 순위 탭은 그대로 보입니다)"""
+    if True:
         if 'p_step' not in st.session_state: st.session_state.p_step = 0
         if 'p_is_playing' not in st.session_state: st.session_state.p_is_playing = False
         if 'p_user' not in st.session_state: st.session_state.p_user = None
@@ -695,10 +727,11 @@ def _run_114_challenge():
                                 del st.session_state[k]
                         st.rerun()
 
-    # =========================================================
-    # 🏆 순위 (전체 5위 + 직급별 3위)
-    # =========================================================
-    with tab2:
+# =========================================================
+# 🏆 순위 (전체 5위 + 직급별 3위)
+# =========================================================
+def _rank_tab():
+    if True:
         st.subheader("🏆 명예의 전당")
 
         if st.button("🔄 순위 새로고침", key="p_refresh_btn"):
@@ -726,57 +759,37 @@ def _run_114_challenge():
             # ---------- 전체 TOP 5 ----------
             st.markdown("#### 🥇 전체 순위 TOP %d" % TOP_ALL)
             top_all = rows[:TOP_ALL]
-            medals = [("🥇 1위", "p-gold"), ("🥈 2위", "p-silver"), ("🥉 3위", "p-bronze")]
-            cols = st.columns(3)
-            for i in range(min(len(top_all), 3)):
+            marks = [("🥇 1위", "p-gold"), ("🥈 2위", "p-silver"), ("🥉 3위", "p-bronze"),
+                     ("4위", "p-num"), ("5위", "p-num")]
+
+            cols = st.columns(TOP_ALL)
+            for i in range(TOP_ALL):
                 with cols[i]:
-                    st.markdown(f"""
-                    <div style="
-                        border: 2px solid #efefef;
-                        padding: 25px 10px;
-                        border-radius: 15px;
-                        background-color: #ffffff;
-                        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-                        text-align: center;
-                        display: block;
-                        width: 100%;
-                    ">
-                        <div class="{medals[i][1]}" style="width: 100%; text-align: center; margin-bottom: 12px;">
-                            {medals[i][0]}
-                        </div>
-                        <div style="width: 100%; text-align: center; font-size: 1.6em; font-weight: 800; color: #1e293b; margin-bottom: 4px;">
-                            {_p_esc(top_all[i].get('이름', '-'))}
-                        </div>
-                        <div style="width: 100%; text-align: center; font-size: 0.95em; color: #64748b; margin-bottom: 4px; font-weight: 500;">
-                            {_p_esc(top_all[i].get('소속팀', '-'))}
-                        </div>
-                        <div style="width: 100%; text-align: center; font-size: 0.85em; color: #2F6FB5; margin-bottom: 14px; font-weight: 700;">
-                            {_p_esc(top_all[i].get('직급', '-'))}
-                        </div>
-                        <div style="width: 100%; text-align: center; font-size: 1.8em; font-weight: bold; color: #ff4b4b; background-color: #fff1f1; border-radius: 8px; padding: 5px 0;">
-                            {_p_float(top_all[i].get('기록(초)'), 0):.2f}초
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    if i >= len(top_all):
+                        st.markdown(
+                            "<div class='p-top' style='opacity:.35'>"
+                            "<div class='%s'>%s</div>"
+                            "<div class='nm'>-</div><div class='tm'>&nbsp;</div>"
+                            "<div class='gp'>&nbsp;</div>"
+                            "<div class='sc'>-</div></div>" % (marks[i][1], marks[i][0]),
+                            unsafe_allow_html=True)
+                        continue
+                    r = top_all[i]
+                    st.markdown(
+                        "<div class='p-top'>"
+                        "<div class='%s'>%s</div>"
+                        "<div class='nm'>%s</div>"
+                        "<div class='tm'>%s</div>"
+                        "<div class='gp'>%s</div>"
+                        "<div class='sc'>%.2f초</div>"
+                        "</div>" % (marks[i][1], marks[i][0],
+                                    _p_esc(r.get('이름', '-')),
+                                    _p_esc(r.get('소속팀', '-')),
+                                    _p_esc(r.get('직급', '-')),
+                                    _p_float(r.get('기록(초)'), 0)),
+                        unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
-
-            if len(top_all) > 3:
-                df = pd.DataFrame(top_all[3:])
-                df.index = range(4, 4 + len(df))
-                df.index.name = "순위"
-                for c in ['이름', '소속팀', '직급', '기록(초)', '달성일']:
-                    if c not in df.columns:
-                        df[c] = "-"
-                df = df[['이름', '소속팀', '직급', '기록(초)', '달성일']]
-                df['기록(초)'] = df['기록(초)'].apply(lambda x: f"{_p_float(x, 0):.2f}초")
-                styled_df = df.style.set_properties(**{
-                    'text-align': 'center', 'font-family': 'sans-serif'
-                }).set_table_styles([
-                    {'selector': 'th', 'props': [('text-align', 'center'),
-                                                 ('background-color', '#f8f9fa')]}
-                ])
-                st.dataframe(styled_df, use_container_width=True)
 
             # ---------- 직급별 참여 현황 (3위까지) ----------
             st.markdown("---")
@@ -784,21 +797,27 @@ def _run_114_challenge():
 
             def _cell(item):
                 if not item:
-                    return "-"
-                return "%s (%s) · %.2f초" % (item.get('이름', '-'),
-                                            item.get('소속팀', '-'),
-                                            _p_float(item.get('기록(초)'), 0))
+                    return "<td class='empty'>-</td>"
+                return ("<td><b>%s</b><br>"
+                        "<span style='color:#64748b;font-size:.9em'>%s</span><br>"
+                        "<span style='color:#ff4b4b;font-weight:700'>%.2f초</span></td>"
+                        % (_p_esc(item.get('이름', '-')),
+                           _p_esc(item.get('소속팀', '-')),
+                           _p_float(item.get('기록(초)'), 0)))
 
-            stat_rows = []
+            body = []
             for g in RANK_GROUPS:
                 mine = [r for r in rows if str(r.get('직급', '')).strip() == g]
                 grp = mine[:TOP_GROUP]
-                stat_rows.append({
-                    "직급": g,
-                    "참여 인원": len(mine),
-                    "🥇 1위": _cell(grp[0] if len(grp) > 0 else None),
-                    "🥈 2위": _cell(grp[1] if len(grp) > 1 else None),
-                    "🥉 3위": _cell(grp[2] if len(grp) > 2 else None),
-                })
-            st.dataframe(pd.DataFrame(stat_rows), use_container_width=True, hide_index=True)
+                tds = "".join(_cell(grp[i] if len(grp) > i else None)
+                              for i in range(TOP_GROUP))
+                body.append("<tr><td class='gp'>%s</td><td>%d명</td>%s</tr>"
+                            % (_p_esc(g), len(mine), tds))
+
+            st.markdown(
+                "<table class='p-tbl'><thead><tr>"
+                "<th>직급</th><th>참여 인원</th><th>🥇 1위</th><th>🥈 2위</th><th>🥉 3위</th>"
+                "</tr></thead><tbody>%s</tbody></table>" % "".join(body),
+                unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
             st.caption("※ 한 사람이 여러 번 도전한 경우 **가장 빠른 기록**만 순위에 반영됩니다.")
