@@ -2,13 +2,15 @@ from utils import *
 
 # ==========================================================
 # ⌨️ 114 프로젝트 타자왕 챌린지 (p114.py)
-#   - 핵심가치 타자 릴레이와 똑같은 방식입니다.
-#   - 순위는 전체 5위 + 직급별 3위로 보여 줍니다.
-#   - DB : 구글 시트 "대한사료_114P Challenge_DB" 의 leaderboard 탭
+#   - 사번 + 이름으로 로그인합니다. (members 시트)
+#   - 틀린 글자는 본문에서 바로 빨갛게 표시됩니다.
+#   - 한 페이지에 여러 줄을 함께 입력합니다.
+#   - DB : 구글 시트 "대한사료_114P Challenge_DB"
 # ==========================================================
 
 P_DB = "대한사료_114P Challenge_DB"
 P_TAB = "leaderboard"
+P_MEMBER_TAB = "members"
 P_HEADERS = ["이름", "소속팀", "직급", "기록(초)", "달성일"]
 
 TOP_ALL = 5      # 👈 전체 순위에서 보여 줄 인원
@@ -33,8 +35,8 @@ P_SCOPE = ["https://spreadsheets.google.com/feeds",
 
 # ==========================================================
 # 챌린지에 들어갈 내용 (114 프로젝트)
-#   한 페이지 안에 여러 줄을 둘 수 있습니다.
-#   한 줄을 정확히 치면 다음 줄, 그 페이지를 다 치면 다음 페이지로 넘어갑니다.
+#   한 페이지 안의 줄들은 '한 화면에 같이' 나옵니다.
+#   그 페이지의 줄을 모두 정확히 치면 다음 페이지로 넘어갑니다.
 # ==========================================================
 P114_STEPS = [
     {"title": "🎯 1단계 : 우리의 목표",
@@ -42,7 +44,7 @@ P114_STEPS = [
 
     {"title": "📊 2단계 : 핵심과제 ①",
      "lines": ["통합 경영 운영 체계 및 핵심지표 고도화",
-               "부서별 회의체 중점 내용과 데이터를 핵심지표화, 데이터를 연동한 통합경영운영체계 구축"]},
+               "부서별 회의체 중점 내용과 데이터를 핵심지표화, 데이터를 연동한 통합경영 운영체계 구축"]},
 
     {"title": "🌱 3단계 : 핵심과제 ②",
      "lines": ["성장을 가속화하는 문화 구축",
@@ -118,8 +120,16 @@ def get_p114_ws():
     return ws
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def get_p114_members():
+    """members 탭(사번·이름 명단)을 읽어 옵니다."""
+    doc = init_gspread_p114()
+    ws = _p_retry(doc.worksheet, P_MEMBER_TAB)
+    return _p_retry(ws.get_all_records)
+
+
 def _reset_p114_conn():
-    for f in (init_gspread_p114, get_p114_ws, get_p114_board):
+    for f in (init_gspread_p114, get_p114_ws, get_p114_board, get_p114_members):
         try:
             f.clear()
         except Exception:
@@ -160,48 +170,63 @@ def _p_esc(x):
             .replace('"', "&quot;"))
 
 
-def _show_typo(target, typed):
-    """어디서부터 틀렸는지 눈으로 보여 줍니다."""
-    n = min(len(target), len(typed))
-    i = 0
-    while i < n and target[i] == typed[i]:
-        i += 1
+def _col(row, *names):
+    """열 이름이 조금씩 달라도 찾아 줍니다. (사번 / 사원번호 / saban ...)"""
+    for n in names:
+        for k in row.keys():
+            if str(k).strip().lower() == n.lower():
+                v = str(row[k]).strip()
+                if v:
+                    return v
+    return ""
 
-    def paint(txt, cut, bad_bg):
-        okp = _p_esc(txt[:cut]).replace(" ", "&nbsp;")
-        badp = _p_esc(txt[cut:]).replace(" ", "&nbsp;")
-        if not badp:
-            return "<span style='color:#1E8449'>%s</span>" % okp
-        return ("<span style='color:#1E8449'>%s</span>"
-                "<span style='background:%s;color:#B3261E;font-weight:700;"
-                "border-radius:3px;padding:1px 2px'>%s</span>" % (okp, bad_bg, badp))
 
-    if len(typed) < len(target) and i == len(typed):
-        head = "아직 덜 입력하셨습니다. (%d / %d 글자)" % (len(typed), len(target))
-    elif len(typed) > len(target) and i == len(target):
-        head = "글자가 더 들어갔습니다. (%d / %d 글자)" % (len(typed), len(target))
-    else:
-        want = target[i] if i < len(target) else ""
-        got = typed[i] if i < len(typed) else ""
-        head = "%d번째 글자부터 다릅니다.  (정답 「%s」 ← 입력하신 글자 「%s」)" % (
-            i + 1, want or "없음", got or "없음")
+def find_member(saban, name):
+    """members 시트에서 사번+이름이 맞는 사람을 찾습니다."""
+    saban = str(saban).strip()
+    name = str(name).strip()
+    if not saban or not name:
+        return None
+    for r in get_p114_members():
+        s = _col(r, "사번", "사원번호", "사번호", "saban", "employee_id", "id")
+        n = _col(r, "이름", "성명", "name")
+        if s == saban and n == name:
+            return {
+                "saban": s,
+                "name": n,
+                "team": _col(r, "소속팀", "팀명", "부서", "team", "dept"),
+                "group": _col(r, "직급", "직위", "rank", "position", "grade"),
+            }
+    return None
 
-    st.markdown(
-        "<div style='border:1px solid #F5C2C7;background:#FFF5F5;border-radius:8px;"
-        "padding:12px 14px;margin:6px 0 10px;font-size:.95rem;line-height:1.9'>"
-        "<div style='color:#B3261E;font-weight:700;margin-bottom:8px'>⚠️ %s</div>"
-        "<div><span style='color:#8C806E;font-size:.85rem'>정 답 &nbsp;</span>%s</div>"
-        "<div><span style='color:#8C806E;font-size:.85rem'>입력값 &nbsp;</span>%s</div>"
-        "<div style='color:#8C806E;font-size:.82rem;margin-top:8px'>"
-        "빨간 부분부터 다릅니다. 그 자리를 고치고 다시 Enter를 누르세요.</div>"
-        "</div>" % (_p_esc(head), paint(target, i, "#FFE3E3"), paint(typed, i, "#FFD1D1")),
-        unsafe_allow_html=True)
+
+def _target_html(text, idx, typed=""):
+    """타이핑할 문장을 한 글자씩 쪼개서 보여 줍니다.
+       치는 즉시 맞은 글자는 초록, 틀린 글자는 빨강으로 바뀝니다."""
+    out = []
+    for i, ch in enumerate(text):
+        cls = "pch"
+        if typed and i < len(typed):
+            cls += " ok" if typed[i] == ch else " bad"
+        shown = "&nbsp;" if ch == " " else _p_esc(ch)
+        out.append("<span class='%s' data-ch=\"%s\">%s</span>" % (cls, _p_esc(ch), shown))
+    extra = ""
+    if typed and len(typed) > len(text):
+        extra = "<span class='pch bad'>%s</span>" % _p_esc(typed[len(text):]).replace(" ", "&nbsp;")
+    return "<div class='p-line' data-idx='%d'>%s%s</div>" % (idx, "".join(out), extra)
 
 
 def run_114_challenge():
     """바깥 껍데기 : 구글 시트가 잠깐 말썽이어도 앱이 죽지 않게 합니다."""
     try:
         _run_114_challenge()
+    except gspread.exceptions.WorksheetNotFound:
+        st.markdown("### ⌨️ 114 프로젝트 타자왕 챌린지")
+        st.error("구글 시트 `%s` 에 **%s** 탭이 없습니다. "
+                 "사번·이름 명단이 담긴 탭 이름을 `%s` 로 만들어 주세요."
+                 % (P_DB, P_MEMBER_TAB, P_MEMBER_TAB))
+        if st.button("🔄 다시 시도", key="p_retry_btn2", type="primary"):
+            _reset_p114_conn(); st.rerun()
     except Exception as e:
         code = getattr(getattr(e, "response", None), "status_code", None)
         st.markdown("### ⌨️ 114 프로젝트 타자왕 챌린지")
@@ -219,36 +244,45 @@ def run_114_challenge():
             st.rerun()
 
 
-def _run_114_challenge():
-    st.markdown("""
-        <style>
-        .stTextInput, .stSelectbox { margin-bottom: 12px !important; }
-        .p-rank-card { border: 2px solid #2F6FB5; padding: 15px; border-radius: 10px;
-                       background-color: #F5F9FF; text-align: center; margin-bottom: 15px; }
-        .p-gold { color: #D4AF37; font-size: 1.5em; font-weight: bold; }
-        .p-silver { color: #A9A9A9; font-size: 1.3em; font-weight: bold; }
-        .p-bronze { color: #CD7F32; font-size: 1.1em; font-weight: bold; }
-        .p-goal { background: linear-gradient(135deg,#1B3B6F,#2F6FB5); color:#fff;
-                  border-radius: 14px; padding: 22px 24px; margin-bottom: 18px; }
-        .p-goal h3 { margin:0 0 10px; font-size:1.25rem; }
-        .p-goal p { margin:0; font-size:.95rem; line-height:1.7; opacity:.92; }
-        .p-done { color:#1E8449; font-size:.95rem; line-height:1.7; margin:2px 0 10px; }
-        .p-todo { color:#A8B0BA; font-size:.95rem; line-height:1.7; margin:2px 0 10px; }
-        .p-now  { font-size:1.05rem; font-weight:700; color:#1B3B6F; line-height:1.75;
-                  background:#EEF4FC; border-left:5px solid #2F6FB5; border-radius:6px;
-                  padding:12px 14px; margin:4px 0 6px; }
+P114_CSS = """
+<style>
+.stTextInput, .stSelectbox { margin-bottom: 12px !important; }
+.p-rank-card { border: 2px solid #2F6FB5; padding: 15px; border-radius: 10px;
+               background-color: #F5F9FF; text-align: center; margin-bottom: 15px; }
+.p-gold { color: #D4AF37; font-size: 1.5em; font-weight: bold; }
+.p-silver { color: #A9A9A9; font-size: 1.3em; font-weight: bold; }
+.p-bronze { color: #CD7F32; font-size: 1.1em; font-weight: bold; }
+.p-goal { background: linear-gradient(135deg,#1B3B6F,#2F6FB5); color:#fff;
+          border-radius: 14px; padding: 22px 24px; margin-bottom: 18px; }
+.p-goal h3 { margin:0 0 10px; font-size:1.25rem; }
+.p-goal p { margin:0; font-size:.95rem; line-height:1.7; opacity:.92; }
+.p-who { background:#EEF4FC; border:1px solid #CFE0F5; border-radius:10px;
+         padding:12px 16px; font-size:.95rem; color:#1B3B6F; }
 
-        /* 숨김 입력칸 : 지우지 않고 화면 밖으로 밀어내어 기능은 100% 살려둡니다. */
-        div[data-testid="stTextInput"]:has(input[aria-label="p_hidden_time"]) {
-            position: absolute !important;
-            left: -9999px !important;
-            opacity: 0 !important;
-            height: 0px !important;
-            margin: 0 !important;
-            padding: 0 !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+/* 타이핑할 문장 : 한 글자씩 색이 바뀝니다 */
+.p-line { font-size:1.05rem; font-weight:700; line-height:2.0; color:#1B3B6F;
+          background:#EEF4FC; border-left:5px solid #2F6FB5; border-radius:6px;
+          padding:12px 14px; margin:4px 0 4px; word-break:break-all;
+          letter-spacing:.2px; }
+.p-line.done { background:#EAF7EF; border-left-color:#1E8449; }
+.pch.ok  { color:#1E8449; }
+.pch.bad { color:#ffffff; background:#E5484D; border-radius:3px; }
+
+/* 숨김 입력칸 : 지우지 않고 화면 밖으로 밀어내어 기능은 100% 살려둡니다. */
+div[data-testid="stTextInput"]:has(input[aria-label="p_hidden_time"]) {
+    position: absolute !important;
+    left: -9999px !important;
+    opacity: 0 !important;
+    height: 0px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+</style>
+"""
+
+
+def _run_114_challenge():
+    st.markdown(P114_CSS, unsafe_allow_html=True)
 
     st.header("⌨️ 114 프로젝트 타자왕 챌린지")
     st.caption("판매량 100만톤 · 매출 1조 · 영업이익 400억. 우리의 목표를 가장 빠르고 정확하게 새긴 주인공은?")
@@ -261,18 +295,11 @@ def _run_114_challenge():
     # =========================================================
     with tab1:
         if 'p_step' not in st.session_state: st.session_state.p_step = 0
-        if 'p_line' not in st.session_state: st.session_state.p_line = 0
         if 'p_is_playing' not in st.session_state: st.session_state.p_is_playing = False
-        if 'p_name' not in st.session_state: st.session_state.p_name = ""
-        if 'p_team' not in st.session_state: st.session_state.p_team = ""
-        if 'p_group' not in st.session_state: st.session_state.p_group = RANK_GROUPS[0]
+        if 'p_user' not in st.session_state: st.session_state.p_user = None
 
-        if not st.session_state.p_is_playing:
-            components.html(
-                "<script>sessionStorage.removeItem('p114StartTime');"
-                "sessionStorage.removeItem('p114EndTime');"
-                "sessionStorage.removeItem('p114Sent');</script>", height=0)
-
+        # ---------- 로그인 ----------
+        if not st.session_state.p_user:
             st.markdown(
                 "<div class='p-goal'><h3>🏁 114 프로젝트</h3>"
                 "<p>판매량 <b>100만톤</b> · 매출 <b>1조</b> · 영업이익 <b>400억</b> 달성을 향한 "
@@ -280,28 +307,74 @@ def _run_114_challenge():
                 "타이핑하면서 우리가 어디로 가고 있는지 함께 새겨 봅니다.</p></div>",
                 unsafe_allow_html=True)
 
-            st.subheader("도전자 정보 입력")
-            c1, c2 = st.columns(2)
-            p_name = c1.text_input("성함 (예: 홍길동)", key="p_in_name")
-            p_team = c2.text_input("소속팀 (예: 인사총무팀)", key="p_in_team")
-            p_group = st.selectbox("직급 (순위는 직급별로도 매겨집니다)", RANK_GROUPS, key="p_in_group")
+            st.subheader("🔒 로그인")
+            st.caption("사번과 이름을 입력해 주세요. 회사 명단과 대조합니다.")
+
+            with st.form("p_login_form", clear_on_submit=False):
+                lc1, lc2 = st.columns(2)
+                in_saban = lc1.text_input("사번", placeholder="사번 입력")
+                in_name = lc2.text_input("이름", placeholder="이름 입력")
+                go_login = st.form_submit_button("로그인", type="primary",
+                                                 use_container_width=True)
+
+            if go_login:
+                if not str(in_saban).strip() or not str(in_name).strip():
+                    st.warning("사번과 이름을 모두 입력해 주세요.")
+                else:
+                    with st.spinner("명단을 확인하는 중입니다..."):
+                        who = find_member(in_saban, in_name)
+                    if who:
+                        st.session_state.p_user = who
+                        st.rerun()
+                    else:
+                        st.error("사번 또는 이름이 명단과 맞지 않습니다. "
+                                 "다시 확인해 주시고, 계속 안 되면 인사총무팀에 문의해 주세요.")
+            return
+
+        user = st.session_state.p_user
+
+        # 명단에 직급이 없으면 직접 고르게 합니다.
+        if user.get("group") not in RANK_GROUPS:
+            st.markdown(
+                "<div class='p-who'>👤 <b>%s</b> 님 (사번 %s)</div>"
+                % (_p_esc(user["name"]), _p_esc(user["saban"])), unsafe_allow_html=True)
+            st.warning("명단에 직급 정보가 없어 순위를 나눌 수 없습니다. 직급을 골라 주세요.")
+            g = st.selectbox("직급", RANK_GROUPS, key="p_pick_group")
+            if st.button("확인", type="primary", key="p_group_ok"):
+                user["group"] = g
+                st.session_state.p_user = user
+                st.rerun()
+            return
+
+        # ---------- 로그인 이후 ----------
+        wc1, wc2 = st.columns([4, 1])
+        wc1.markdown(
+            "<div class='p-who'>👤 <b>%s</b> 님 · %s · %s</div>"
+            % (_p_esc(user["name"]), _p_esc(user.get("team") or "-"), _p_esc(user["group"])),
+            unsafe_allow_html=True)
+        if wc2.button("로그아웃", key="p_logout", use_container_width=True):
+            for k in ('p_user', 'p_is_playing', 'p_step', 'p_hidden_time', 'p_score_saved'):
+                if k in st.session_state:
+                    del st.session_state[k]
+            st.rerun()
+
+        st.markdown("")
+
+        if not st.session_state.p_is_playing:
+            components.html(
+                "<script>sessionStorage.removeItem('p114StartTime');"
+                "sessionStorage.removeItem('p114EndTime');"
+                "sessionStorage.removeItem('p114Sent');</script>", height=0)
 
             st.info("💡 **게임 규칙:** 첫 글자를 치는 순간부터 초시계가 작동합니다. "
-                    "총 **%d줄**이며, 한 줄을 정확히 치고 Enter를 누르면 다음 줄로 넘어갑니다. "
-                    "완료 후 자동으로 커서가 이동하니 키보드에서 손을 떼지 마세요!" % TOTAL_LINES)
+                    "총 **%d줄**이며, 틀린 글자는 **빨갛게** 바로 표시됩니다. "
+                    "한 페이지의 줄을 모두 정확히 치면 다음 페이지로 넘어갑니다." % TOTAL_LINES)
 
             if st.button("🚀 챌린지 시작하기", type="primary", use_container_width=True,
                          key="p_start_btn"):
-                if p_name and p_team:
-                    st.session_state.p_name = p_name
-                    st.session_state.p_team = p_team
-                    st.session_state.p_group = p_group
-                    st.session_state.p_is_playing = True
-                    st.session_state.p_step = 0
-                    st.session_state.p_line = 0
-                    st.rerun()
-                else:
-                    st.warning("성함과 소속팀을 입력해야 명예의 전당에 오를 수 있습니다!")
+                st.session_state.p_is_playing = True
+                st.session_state.p_step = 0
+                st.rerun()
 
         else:
             is_finished = st.session_state.p_step >= len(P114_STEPS)
@@ -323,6 +396,7 @@ def _run_114_challenge():
                     const isFinished = {'true' if is_finished else 'false'};
                     const parent = window.parent;
                     const timerDisplay = document.getElementById('stopwatch');
+
                     if (isFinished) {{
                         if (!sessionStorage.getItem('p114EndTime')) {{
                             sessionStorage.setItem('p114EndTime', Date.now());
@@ -337,56 +411,79 @@ def _run_114_challenge():
                             const hiddenInput = parent.document.querySelector('input[aria-label="p_hidden_time"]');
                             if (hiddenInput) {{
                                 clearInterval(trySend);
-
                                 if (!sessionStorage.getItem('p114Sent')) {{
-                                    let nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                    nativeInputValueSetter.call(hiddenInput, finalTime);
-
+                                    let setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+                                    setter.call(hiddenInput, finalTime);
                                     hiddenInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
-
                                     setTimeout(() => {{
                                         hiddenInput.focus();
                                         hiddenInput.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true }}));
                                         hiddenInput.blur();
                                     }}, 100);
-
                                     sessionStorage.setItem('p114Sent', 'true');
                                 }}
                             }}
                             attempts++;
                             if (attempts > 50) clearInterval(trySend);
                         }}, 100);
+
                     }} else {{
+                        // 초시계
                         setInterval(() => {{
                             if (sessionStorage.getItem('p114StartTime')) {{
                                 let start = parseInt(sessionStorage.getItem('p114StartTime'));
-                                let elapsed = (Date.now() - start) / 1000;
-                                timerDisplay.innerText = elapsed.toFixed(2);
+                                timerDisplay.innerText = ((Date.now() - start) / 1000).toFixed(2);
                             }}
                         }}, 50);
+
+                        // 글자 맞춰 보기 + 커서 자동 이동
                         setInterval(() => {{
                             try {{
-                                const inputBox = parent.document.querySelector('input[aria-label="완벽히 입력하고 Enter를 누르세요"]');
-                                if (inputBox) {{
-                                    if (parent.document.activeElement !== inputBox) {{ inputBox.focus(); }}
+                                const doc = parent.document;
+                                const tgts = doc.querySelectorAll('.p-line');
+                                const ins  = doc.querySelectorAll('input[aria-label^="타이핑"]');
+                                let focusIdx = -1;
+                                let onMine = false;
 
-                                    if (!inputBox.dataset.setupDone) {{
-                                        const blockEvent = e => {{ e.preventDefault(); alert("⚠️ 꼼수 금지! 직접 치세요."); }};
-                                        inputBox.addEventListener('paste', blockEvent);
-                                        inputBox.addEventListener('drop', blockEvent);
+                                for (let k = 0; k < ins.length; k++) {{
+                                    if (doc.activeElement === ins[k]) onMine = true;
 
-                                        inputBox.addEventListener('keydown', e => {{
+                                    if (!ins[k].dataset.setupDone) {{
+                                        const block = e => {{ e.preventDefault(); alert("⚠️ 꼼수 금지! 직접 치세요."); }};
+                                        ins[k].addEventListener('paste', block);
+                                        ins[k].addEventListener('drop', block);
+                                        ins[k].addEventListener('keydown', e => {{
                                             if (e.key !== 'Enter' && e.key !== 'Tab') {{
                                                 if (!sessionStorage.getItem('p114StartTime')) {{
                                                     sessionStorage.setItem('p114StartTime', Date.now());
                                                 }}
                                             }}
                                         }});
-                                        inputBox.dataset.setupDone = "true";
+                                        ins[k].dataset.setupDone = "true";
                                     }}
+
+                                    if (k >= tgts.length) continue;
+                                    const spans = tgts[k].querySelectorAll('.pch');
+                                    const v = ins[k].value;
+                                    let allok = (v.length === spans.length);
+
+                                    for (let i = 0; i < spans.length; i++) {{
+                                        if (i < v.length) {{
+                                            const good = (v[i] === spans[i].dataset.ch);
+                                            spans[i].className = 'pch ' + (good ? 'ok' : 'bad');
+                                            if (!good) allok = false;
+                                        }} else {{
+                                            spans[i].className = 'pch';
+                                        }}
+                                    }}
+                                    if (allok) tgts[k].classList.add('done');
+                                    else {{ tgts[k].classList.remove('done'); if (focusIdx < 0) focusIdx = k; }}
                                 }}
+
+                                // 아직 우리 입력칸에 커서가 없을 때만 자동으로 옮깁니다.
+                                if (!onMine && focusIdx >= 0 && ins[focusIdx]) ins[focusIdx].focus();
                             }} catch(err) {{ }}
-                        }}, 100);
+                        }}, 80);
                     }}
                 </script>
             </body>
@@ -398,42 +495,29 @@ def _run_114_challenge():
             if not is_finished:
                 cur = P114_STEPS[st.session_state.p_step]
                 lines = cur["lines"]
-                now = st.session_state.p_line
-
                 st.markdown(f"**{cur['title']}**")
 
+                typed_all = []
                 for li, line_text in enumerate(lines):
-                    if li < now:
-                        # 이미 정확히 친 줄
-                        st.markdown("<div class='p-done'>✅ %s</div>" % _p_esc(line_text),
-                                    unsafe_allow_html=True)
-                    elif li == now:
-                        # 지금 쳐야 하는 줄
-                        st.markdown("<div class='p-now'>📝 %s</div>" % _p_esc(line_text),
-                                    unsafe_allow_html=True)
-                        user_input = st.text_input(
-                            "완벽히 입력하고 Enter를 누르세요",
-                            key="p_in_%d_%d" % (st.session_state.p_step, li))
+                    key = "p_in_%d_%d" % (st.session_state.p_step, li)
+                    typed = str(st.session_state.get(key, "") or "")
+                    st.markdown(_target_html(line_text, li, typed), unsafe_allow_html=True)
+                    st.text_input("타이핑 %d" % (li + 1), key=key,
+                                  label_visibility="collapsed",
+                                  placeholder="위 문장을 그대로 입력하세요")
+                    typed_all.append(str(st.session_state.get(key, "") or ""))
 
-                        if user_input:
-                            if user_input == line_text:
-                                if li + 1 < len(lines):
-                                    st.session_state.p_line += 1
-                                else:
-                                    st.session_state.p_step += 1
-                                    st.session_state.p_line = 0
-                                st.rerun()
-                            else:
-                                _show_typo(line_text, user_input)
-                    else:
-                        # 아직 차례가 오지 않은 줄
-                        st.markdown("<div class='p-todo'>%s</div>" % _p_esc(line_text),
-                                    unsafe_allow_html=True)
+                # 이 페이지의 모든 줄이 정확하면 다음 페이지로
+                if all(typed_all[i] == lines[i] for i in range(len(lines))):
+                    st.session_state.p_step += 1
+                    st.rerun()
 
-                done_lines = sum(len(s["lines"]) for s in P114_STEPS[:st.session_state.p_step]) + now
-                st.progress(done_lines / TOTAL_LINES,
+                done_lines = (sum(len(s["lines"]) for s in P114_STEPS[:st.session_state.p_step])
+                              + sum(1 for i in range(len(lines)) if typed_all[i] == lines[i]))
+                st.progress(min(done_lines / TOTAL_LINES, 1.0),
                             text="%d / %d 줄" % (done_lines, TOTAL_LINES))
-                st.caption("한 글자도 빠짐없이 그대로 입력하세요. (띄어쓰기·쉼표 포함)")
+                st.caption("한 글자도 빠짐없이 그대로 입력하세요. "
+                           "**빨간 글자**가 틀린 부분입니다. (띄어쓰기·쉼표 포함)")
 
             else:
                 js_time = st.text_input("p_hidden_time", key="p_hidden_time",
@@ -441,12 +525,9 @@ def _run_114_challenge():
 
                 if js_time and 'p_score_saved' not in st.session_state:
                     final_time_float = _p_float(js_time, 0.0)
-
                     with st.spinner("📡 최종 기록 확인 및 명예의 전당 등록 중... (약 2~3초 소요)"):
-                        if save_p114_score(st.session_state.p_name,
-                                           st.session_state.p_team,
-                                           st.session_state.p_group,
-                                           final_time_float):
+                        if save_p114_score(user["name"], user.get("team", ""),
+                                           user["group"], final_time_float):
                             st.session_state.p_score_saved = True
                     st.rerun()
 
@@ -454,9 +535,9 @@ def _run_114_challenge():
                     st.balloons()
                     st.markdown(f"""
                     <div class="p-rank-card">
-                        <h2>🎉 {st.session_state.p_name}님, 완료를 축하합니다!</h2>
+                        <h2>🎉 {_p_esc(user['name'])}님, 완료를 축하합니다!</h2>
                         <h1 style="color: #2F6FB5;">⏱️ 최종 기록: {js_time}초</h1>
-                        <p><b>{st.session_state.p_group}</b> 부문에 기록이 등록되었습니다.</p>
+                        <p><b>{_p_esc(user['group'])}</b> 부문에 기록이 등록되었습니다.</p>
                         <p>114 프로젝트, 이제 손끝으로도 기억하시겠죠?</p>
                     </div>
                     """, unsafe_allow_html=True)
@@ -465,7 +546,9 @@ def _run_114_challenge():
                     if st.button("🔄 처음부터 다시 도전하기", key="p_again_btn"):
                         st.session_state.p_is_playing = False
                         st.session_state.p_step = 0
-                        st.session_state.p_line = 0
+                        for k in list(st.session_state.keys()):
+                            if str(k).startswith("p_in_"):
+                                del st.session_state[k]
                         for k in ('p_hidden_time', 'p_score_saved'):
                             if k in st.session_state:
                                 del st.session_state[k]
