@@ -49,9 +49,10 @@ SCOPE = ["https://spreadsheets.google.com/feeds",
 
 STAT_DB = "대한사료_통합통계_DB"
 STAT_TAB = "접속통계"
-STAT_HEADERS = ["날짜", "메인", "멘토링", "리더대화", "원데이클래스", "타자연습", "타이쿤", "도서관"]
+STAT_HEADERS = ["날짜", "메인", "멘토링", "리더대화", "원데이클래스", "타자연습", "타이쿤", "도서관",
+                "114챌린지"]
 COL_MAP = {"home": 2, "mentoring": 3, "leader": 4, "class": 5,
-           "typing": 6, "tycoon": 7, "library": 8}
+           "typing": 6, "tycoon": 7, "library": 8, "p114": 9}
 
 
 @st.cache_resource(show_spinner=False)
@@ -227,6 +228,9 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 .pf-dd { margin-top:6px; color:#6B7480; font-size:.86rem; line-height:1.55; }
 .pf-beta { margin-left:7px; font-size:.66rem; font-weight:700; color:#B0782A;
   background:#FAEFDC; padding:3px 7px; border-radius:99px; vertical-align:middle; }
+.pf-soon { margin-left:7px; font-size:.66rem; font-weight:700; color:#5B6472;
+  background:#E9ECF1; padding:3px 7px; border-radius:99px; vertical-align:middle;
+  letter-spacing:.04em; }
 
 /* ----- 묶음별 색 ----- */
 .pf-a::before { background:#1F7A5A; } .pf-a .pf-ico { background:#E4F2EC; }
@@ -255,20 +259,35 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 </style>
 """
 
-# 카드 내용 : (페이지이름, 아이콘, 제목, 한 줄 설명, 베타여부)
+# 카드 하나 = 사전 하나입니다. 필요한 것만 적으면 됩니다.
+#   page  : 페이지 이름 (아래 화면 연결과 같아야 합니다)
+#   ico   : 아이콘,  title : 제목,  desc : 한 줄 설명
+#   beta  : True 면 'Beta' 딱지
+#   soon  : True 면 'Coming Soon' 딱지
+#   gate  : 비밀번호를 적으면 그 비밀번호를 넣어야 들어갈 수 있습니다.
 # 묶음 : (영문 이름, 우리말 설명, 색깔표시, 카드들)
 PLATFORM_MENU = [
     ("Community", "함께 성장하기", "a", [
-        ("mentoring", "🤝", "동반성장 멘토링", "선배와 후배가 짝을 이뤄 함께 성장합니다", False),
-        ("leader", "☕", "성장지원 1:1 코칭", "리더와 구성원이 나누는 1:1 대화", False),
+        {"page": "mentoring", "ico": "🤝", "title": "동반성장 멘토링",
+         "desc": "선배와 후배가 짝을 이뤄 함께 성장합니다"},
+        {"page": "leader", "ico": "☕", "title": "성장지원 1:1 코칭",
+         "desc": "리더와 구성원이 나누는 1:1 대화"},
     ]),
     ("Learning", "배우고 나누기", "b", [
-        ("class", "🎓", "직무 원데이 클래스", "동료의 직무 노하우를 배우는 사내 강의", False),
-        ("library", "📚", "사내 도서관", "셀프로 직접 빌리고 반납하는 사내 도서관", False),
+        {"page": "class", "ico": "🎓", "title": "직무 원데이 클래스",
+         "desc": "동료의 직무 노하우를 배우는 사내 강의"},
+        {"page": "library", "ico": "📚", "title": "사내 도서관",
+         "desc": "셀프로 직접 빌리고 반납하는 사내 도서관"},
     ]),
     ("Gamification", "즐기며 익히기", "c", [
-        ("typing", "🎯", "핵심가치 타자연습", "핵심가치를 타이핑하며 익혀 봅니다", False),
-        ("tycoon", "🌾", "밸류체인 타이쿤", "사료 밸류체인을 직접 경영해 보는 게임", True),
+        {"page": "typing", "ico": "🎯", "title": "핵심가치 타자연습",
+         "desc": "핵심가치를 타이핑하며 익혀 봅니다"},
+        {"page": "p114", "ico": "⌨️", "title": "114 프로젝트 타자왕 챌린지",
+         "desc": "판매량 100만톤 · 매출 1조 · 영업이익 400억",
+         "soon": True, "gate": "dhfeedhr"},
+        {"page": "tycoon", "ico": "🌾", "title": "밸류체인 타이쿤",
+         "desc": "사료 밸류체인을 직접 경영해 보는 게임",
+         "beta": True, "gate": "dhfeedhr"},
     ]),
 ]
 
@@ -284,13 +303,17 @@ def nav_box(name):
         return st.container()
 
 
-def draw_card(ico, title, desc, accent, beta=False):
-    beta_html = "<span class='pf-beta'>Beta</span>" if beta else ""
+def draw_card(card, accent):
+    tag = ""
+    if card.get("soon"):
+        tag = "<span class='pf-soon'>Coming Soon</span>"
+    elif card.get("beta"):
+        tag = "<span class='pf-beta'>Beta</span>"
     st.markdown(
         f"<div class='pf-card pf-{accent}'>"
-        f"<div class='pf-ico'>{ico}</div>"
-        f"<div class='pf-tt'>{title}{beta_html}</div>"
-        f"<div class='pf-dd'>{desc}</div>"
+        f"<div class='pf-ico'>{card['ico']}</div>"
+        f"<div class='pf-tt'>{card['title']}{tag}</div>"
+        f"<div class='pf-dd'>{card['desc']}</div>"
         f"</div>", unsafe_allow_html=True)
 
 
@@ -330,24 +353,26 @@ with holder.container():
                 unsafe_allow_html=True)
 
             cols = st.columns(PLATFORM_COLS)
-            for i, (pg, ico, title, desc, beta) in enumerate(cards[:PLATFORM_COLS]):
+            for i, card in enumerate(cards[:PLATFORM_COLS]):
+                pg = card["page"]
                 with cols[i]:
-                    draw_card(ico, title, desc, accent, beta)
+                    draw_card(card, accent)
 
-                    if pg == "tycoon":
-                        # 타이쿤은 아직 테스트 중이라 비밀번호가 필요합니다.
+                    if card.get("gate"):
+                        # 비밀번호가 필요한 프로그램입니다.
                         # st.form 상자 안에 넣으면 '엔터'만 쳐도 입장합니다.
-                        with st.form("tycoon_gate", clear_on_submit=False):
+                        with st.form("gate_%s" % pg, clear_on_submit=False):
                             c_pw, c_btn = st.columns([2, 1])
-                            test_pw = c_pw.text_input("비밀번호", type="password", key="tycoon_pw",
-                                                      label_visibility="collapsed",
-                                                      placeholder="비밀번호 입력")
-                            go_tycoon = c_btn.form_submit_button("입장하기", use_container_width=True)
+                            typed_pw = c_pw.text_input("비밀번호", type="password",
+                                                       key="pw_%s" % pg,
+                                                       label_visibility="collapsed",
+                                                       placeholder="비밀번호 입력")
+                            go_in = c_btn.form_submit_button("입장하기", use_container_width=True)
                         # 판정은 폼 밖에서 합니다. (폼 안에서는 화면 이동을 하면 안 됩니다)
-                        if go_tycoon:
-                            if test_pw == "dhfeedhr":   # 👈 타이쿤 테스트용 비밀번호
-                                go_to("tycoon")
-                            elif test_pw == "":
+                        if go_in:
+                            if typed_pw == card["gate"]:
+                                go_to(pg)
+                            elif typed_pw == "":
                                 st.warning("비밀번호를 입력해 주세요.")
                             else:
                                 st.error("비밀번호가 일치하지 않습니다.")
@@ -377,6 +402,10 @@ with holder.container():
     elif page == "typing":
         back_button()
         load_module("typing_game").run_typing_game()
+
+    elif page == "p114":
+        back_button()
+        load_module("p114").run_114_challenge()
 
     elif page == "tycoon":
         back_button()
