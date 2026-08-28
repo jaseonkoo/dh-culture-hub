@@ -9,9 +9,13 @@ from utils import *
 # ==========================================================
 
 P_DB = "대한사료_114P Challenge_DB"
-P_TAB = "leaderboard"
-P_MEMBER_TAB = "members"
+P_TAB = "leaderboard"                 # 순위표 (화면에 보이는 것)
+P_MEMBER_TAB = "members"              # 사번·이름 명단
+P_LOG_TAB = "attempts"                # 👈 개인별 도전 기록 (통계용, 자동 생성됩니다)
+
 P_HEADERS = ["이름", "소속팀", "직급", "기록(초)", "달성일"]
+P_LOG_HEADERS = ["도전일시", "사번", "이름", "소속팀", "구분", "직급",
+                 "순위부문", "기록(초)", "분당타수", "도전회차"]
 
 TOP_ALL = 5      # 👈 전체 순위에서 보여 줄 인원
 TOP_GROUP = 3    # 👈 직급별로 보여 줄 인원
@@ -64,6 +68,7 @@ P114_STEPS = [
 ]
 
 TOTAL_LINES = sum(len(s["lines"]) for s in P114_STEPS)
+TOTAL_CHARS = sum(len(ln) for s in P114_STEPS for ln in s["lines"])
 
 
 class P114Busy(Exception):
@@ -120,6 +125,70 @@ def get_p114_ws():
     return ws
 
 
+@st.cache_resource(show_spinner=False)
+def get_p114_log_ws():
+    """attempts 탭(개인별 도전 기록). 없으면 자동으로 만듭니다."""
+    doc = init_gspread_p114()
+    try:
+        ws = _p_retry(doc.worksheet, P_LOG_TAB)
+    except gspread.exceptions.WorksheetNotFound:
+        ws = _p_retry(doc.add_worksheet, title=P_LOG_TAB, rows=5000, cols=12)
+        _p_retry(ws.append_row, P_LOG_HEADERS)
+        return ws
+    try:
+        first = _p_retry(ws.row_values, 1)
+        if not first:
+            _p_retry(ws.append_row, P_LOG_HEADERS)
+    except Exception:
+        pass
+    return ws
+
+
+@st.cache_data(ttl=10, show_spinner=False)
+def get_p114_attempts():
+    """개인별 도전 기록 전체를 읽어 옵니다. (통계·회차 계산용)"""
+    try:
+        return _p_retry(get_p114_log_ws().get_all_records)
+    except Exception:
+        return []
+
+
+def save_p114_attempt(user, score):
+    """도전 한 번을 그대로 기록해 둡니다. (순위와 별개로 전부 남습니다)"""
+    try:
+        ws = get_p114_log_ws()
+        kst = datetime.timezone(datetime.timedelta(hours=9))
+        now_str = datetime.datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
+
+        # 이 사람이 몇 번째 도전인지 셉니다.
+        saban = str(user.get("saban", "")).strip()
+        nth = 1
+        for r in get_p114_attempts():
+            if str(r.get("사번", "")).strip() == saban:
+                nth += 1
+
+        sec = _p_float(score, 0)
+        tpm = round(TOTAL_CHARS / sec * 60) if sec > 0 else 0
+
+        _p_retry(ws.append_row, [
+            now_str,
+            saban,
+            user.get("name", ""),
+            user.get("team", ""),
+            user.get("gubun", ""),
+            user.get("position", ""),
+            user.get("group", ""),
+            sec,
+            tpm,
+            nth,
+        ])
+        get_p114_attempts.clear()
+        return True
+    except Exception:
+        # 기록 저장이 실패해도 순위 등록은 그대로 진행합니다.
+        return False
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def get_p114_members():
     """members 탭(사번·이름 명단)을 읽어 옵니다."""
@@ -129,7 +198,8 @@ def get_p114_members():
 
 
 def _reset_p114_conn():
-    for f in (init_gspread_p114, get_p114_ws, get_p114_board, get_p114_members):
+    for f in (init_gspread_p114, get_p114_ws, get_p114_board, get_p114_members,
+              get_p114_log_ws, get_p114_attempts):
         try:
             f.clear()
         except Exception:
@@ -405,6 +475,14 @@ def _run_114_challenge():
         st.markdown("")
 
         if not st.session_state.p_is_playing:
+            # 지금까지의 내 도전 기록을 한 줄로 알려 줍니다.
+            _mine = [r for r in get_p114_attempts()
+                     if str(r.get("사번", "")).strip() == str(user.get("saban", "")).strip()]
+            if _mine:
+                _best = min(_p_float(r.get("기록(초)")) for r in _mine)
+                st.success("📈 지금까지 **%d번** 도전하셨습니다. 최고 기록은 **%.2f초** 입니다."
+                           % (len(_mine), _best))
+
             components.html(
                 "<script>sessionStorage.removeItem('p114StartTime');"
                 "sessionStorage.removeItem('p114EndTime');"
@@ -586,6 +664,9 @@ def _run_114_challenge():
                 if js_time and 'p_score_saved' not in st.session_state:
                     final_time_float = _p_float(js_time, 0.0)
                     with st.spinner("📡 최종 기록 확인 및 명예의 전당 등록 중... (약 2~3초 소요)"):
+                        # ① 개인별 도전 기록 (attempts 탭) — 통계용으로 전부 남깁니다.
+                        save_p114_attempt(user, final_time_float)
+                        # ② 순위표 (leaderboard 탭)
                         if save_p114_score(user["name"], user.get("team", ""),
                                            user["group"], final_time_float):
                             st.session_state.p_score_saved = True
