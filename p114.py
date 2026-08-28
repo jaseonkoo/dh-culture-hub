@@ -119,28 +119,25 @@ def _p_float(v, default=999.0):
 
 # ==========================================================
 # 챌린지에 들어갈 내용 (114 프로젝트)
-#   text : 실제로 타이핑할 문장
-#   desc : 화면에 함께 보여 주는 설명 (타이핑하지 않습니다)
+#   한 단계에 '과제 제목 + 설명'을 한 줄로 묶어 두었습니다.
+#   text 안의 글자를 그대로 다 입력해야 다음 단계로 넘어갑니다.
 # ==========================================================
 P114_STEPS = [
     {"title": "🎯 1단계 : 우리의 목표",
-     "text": "판매량 100만톤 매출 1조 영업이익 400억",
-     "desc": "114 프로젝트는 이 세 가지 목표를 향한 5대 핵심과제입니다."},
+     "text": "판매량 100만톤 매출 1조 영업이익 400억 달성을 향한 5대 핵심과제 114 프로젝트"},
     {"title": "📊 2단계 : 핵심과제 ①",
-     "text": "통합 경영 운영 체계 및 핵심지표 고도화",
-     "desc": "부서별 회의체 중점 내용과 데이터를 핵심지표화, 데이터를 연동한 통합경영운영체계 구축"},
+     "text": "1.통합 경영 운영 체계 및 핵심지표 고도화 부서별 회의체 중점 내용과 데이터를 핵심지표화, "
+             "데이터를 연동한 통합경영운영체계 구축"},
     {"title": "🌱 3단계 : 핵심과제 ②",
-     "text": "성장을 가속화하는 문화 구축",
-     "desc": "스타 인재들의 원팀 시너지를 바탕으로 114 프로젝트 달성을 위한 성장중심 조직구현"},
+     "text": "2.성장을 가속화하는 문화 구축 스타 인재들의 원팀 시너지를 바탕으로 "
+             "114 프로젝트 달성을 위한 성장중심 조직구현"},
     {"title": "📈 4단계 : 핵심과제 ③",
-     "text": "영업경쟁력 강화 및 대리점 고도화",
-     "desc": "축산시장 내 강력한 영업 경쟁력을 갖춘 지속 성장 가능한 영업 조직 구축"},
+     "text": "3.영업경쟁력 강화 및 대리점 고도화 축산시장 내 강력한 영업 경쟁력을 갖춘 "
+             "지속 성장 가능한 영업 조직 구축"},
     {"title": "🏅 5단계 : 핵심과제 ④",
-     "text": "고객중심 품질 혁신",
-     "desc": "고객이 만족하는 품질, 전 직원이 함께 만드는 최적의 품질"},
+     "text": "4.고객중심 품질 혁신 고객이 만족하는 품질 전 직원이 함께 만드는 최적의 품질"},
     {"title": "📣 6단계 : 핵심과제 ⑤",
-     "text": "마케팅팀 구축",
-     "desc": "사료를 판매하는 회사를 넘어 고객의 수익을 설계하고 증명하는 회사로의 전환"},
+     "text": "5.마케팅팀 구축 사료를 판매하는 회사를 넘어 고객의 수익을 설계하고 증명하는 회사로의 전환"},
 ]
 
 
@@ -338,8 +335,7 @@ def _run_114_challenge():
 
                 st.markdown(f"**{cur['title']}**")
                 st.markdown(f"### 📝 {cur['text']}")
-                if cur.get("desc"):
-                    st.caption("💬 %s" % cur["desc"])
+                st.caption("한 글자도 빠짐없이 그대로 입력하세요. (띄어쓰기·마침표 포함)")
 
                 user_input = st.text_input("완벽히 입력하고 Enter를 누르세요",
                                            key=f"p_input_{st.session_state.p_step}")
@@ -430,17 +426,19 @@ def _run_114_challenge():
             if pick == opts[0]:
                 shown = rows
                 title_txt = "전체"
+                limit = 5          # 👈 전체 순위는 5명까지
             else:
                 g = RANK_GROUPS[opts.index(pick) - 1]
                 shown = [r for r in rows if str(r.get('직급', '')).strip() == g]
                 title_txt = g
+                limit = 3          # 👈 직급별 순위는 3명까지
 
-            shown = sorted(shown, key=lambda x: _p_float(x.get('기록(초)')))
+            shown = sorted(shown, key=lambda x: _p_float(x.get('기록(초)')))[:limit]
 
             if not shown:
                 st.info("**%s** 부문에는 아직 도전자가 없습니다. 1등의 주인공이 되어 보세요!" % title_txt)
             else:
-                st.markdown("#### 🏆 %s 부문 TOP 3" % title_txt)
+                st.markdown("#### 🏆 %s 부문 TOP %d" % (title_txt, limit))
                 top3 = shown[:3]
                 cols = st.columns(3)
                 medals = [("🥇 1위", "p-gold"), ("🥈 2위", "p-silver"), ("🥉 3위", "p-bronze")]
@@ -479,7 +477,7 @@ def _run_114_challenge():
                 st.markdown("<br>", unsafe_allow_html=True)
 
                 if len(shown) > 3:
-                    df = pd.DataFrame(shown[3:20])
+                    df = pd.DataFrame(shown[3:limit])
                     df.index = range(4, 4 + len(df))
                     df.index.name = "순위"
                     for c in ['이름', '소속팀', '직급', '기록(초)', '달성일']:
