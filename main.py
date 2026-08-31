@@ -231,6 +231,9 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 .pf-soon { margin-left:7px; font-size:.66rem; font-weight:700; color:#5B6472;
   background:#E9ECF1; padding:3px 7px; border-radius:99px; vertical-align:middle;
   letter-spacing:.04em; }
+.pf-new { margin-left:7px; font-size:.66rem; font-weight:700; color:#1F7A5A;
+  background:#E4F2EC; padding:3px 7px; border-radius:99px; vertical-align:middle;
+  letter-spacing:.04em; }
 
 /* ----- 묶음별 색 ----- */
 .pf-a::before { background:#1F7A5A; } .pf-a .pf-ico { background:#E4F2EC; }
@@ -263,6 +266,7 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 #   page  : 페이지 이름 (아래 화면 연결과 같아야 합니다)
 #   ico   : 아이콘,  title : 제목,  desc : 한 줄 설명
 #   beta  : True 면 'Beta' 딱지
+#   new   : True 면 'NEW' 딱지
 #   soon  : True 면 'Coming Soon' 딱지
 #   gate  : 비밀번호를 적으면 그 비밀번호를 넣어야 들어갈 수 있습니다.
 # 묶음 : (영문 이름, 우리말 설명, 색깔표시, 카드들)
@@ -280,11 +284,11 @@ PLATFORM_MENU = [
          "desc": "셀프로 직접 빌리고 반납하는 사내 도서관"},
     ]),
     ("Gamification", "즐기며 익히기", "c", [
-        {"page": "typing", "ico": "🎯", "title": "핵심가치 타자연습",
-         "desc": "핵심가치를 타이핑하며 익혀 봅니다"},
         {"page": "p114", "ico": "⌨️", "title": "114 프로젝트 타자왕 챌린지",
          "desc": "판매량 100만톤 · 매출 1조 · 영업이익 400억",
-         "soon": True, "gate": "dhfeedhr"},
+         "new": True},
+        {"page": "typing", "ico": "🎯", "title": "핵심가치 타자연습",
+         "desc": "핵심가치를 타이핑하며 익혀 봅니다"},
         {"page": "tycoon", "ico": "🌾", "title": "밸류체인 타이쿤",
          "desc": "사료 밸류체인을 직접 경영해 보는 게임",
          "beta": True, "gate": "dhfeedhr"},
@@ -307,6 +311,8 @@ def draw_card(card, accent):
     tag = ""
     if card.get("soon"):
         tag = "<span class='pf-soon'>Coming Soon</span>"
+    elif card.get("new"):
+        tag = "<span class='pf-new'>NEW</span>"
     elif card.get("beta"):
         tag = "<span class='pf-beta'>Beta</span>"
     st.markdown(
