@@ -50,9 +50,9 @@ SCOPE = ["https://spreadsheets.google.com/feeds",
 STAT_DB = "대한사료_통합통계_DB"
 STAT_TAB = "접속통계"
 STAT_HEADERS = ["날짜", "메인", "멘토링", "리더대화", "원데이클래스", "타자연습", "타이쿤", "도서관",
-                "114챌린지"]
+                "114챌린지", "교육이수"]
 COL_MAP = {"home": 2, "mentoring": 3, "leader": 4, "class": 5,
-           "typing": 6, "tycoon": 7, "library": 8, "p114": 9}
+           "typing": 6, "tycoon": 7, "library": 8, "p114": 9, "edu": 10}
 
 
 @st.cache_resource(show_spinner=False)
@@ -282,6 +282,9 @@ PLATFORM_MENU = [
          "desc": "동료의 직무 노하우를 배우는 사내 강의"},
         {"page": "library", "ico": "📚", "title": "사내 도서관",
          "desc": "셀프로 직접 빌리고 반납하는 사내 도서관"},
+        {"page": "edu", "ico": "📊", "title": "교육이수 현황",
+         "desc": "내 연간 교육 이수 내역과 교육비를 조회합니다",
+         "gate": "dhfeedhr"},
     ]),
     ("Gamification", "즐기며 익히기", "c", [
         {"page": "p114", "ico": "⌨️", "title": "114 프로젝트 타자왕 챌린지",
@@ -416,6 +419,10 @@ with holder.container():
     elif page == "tycoon":
         back_button()
         load_module("tycoon_game").run_tycoon_game()
+
+    elif page == "edu":
+        back_button()
+        load_module("edu").run_edu()
 
     elif page == "library":
         # 도서관 안에도 '돌아가기' 버튼이 있어서, 이 버튼은 '플랫폼 메인으로
