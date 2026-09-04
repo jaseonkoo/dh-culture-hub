@@ -13,10 +13,9 @@ P_TAB = "leaderboard"                 # 순위표 (화면에 보이는 것)
 P_MEMBER_TAB = "members"              # 사번·이름 명단
 P_LOG_TAB = "attempts"                # 👈 개인별 도전 기록 (통계용, 자동 생성됩니다)
 
-P_HEADERS = ["이름", "소속팀", "직급", "기록(초)", "달성일", "검증"]
+P_HEADERS = ["이름", "소속팀", "직급", "기록(초)", "달성일"]
 P_LOG_HEADERS = ["도전일시", "사번", "이름", "소속팀", "구분", "직급",
-                 "순위부문", "기록(초)", "분당타수", "도전회차",
-                 "판정", "자동완성시도", "붙여넣기시도", "키입력수", "비고"]
+                 "순위부문", "기록(초)", "분당타수", "도전회차"]
 
 TOP_ALL = 5      # 👈 전체 순위에서 보여 줄 인원
 TOP_GROUP = 3    # 👈 직급별로 보여 줄 인원
@@ -72,68 +71,6 @@ TOTAL_LINES = sum(len(s["lines"]) for s in P114_STEPS)
 TOTAL_CHARS = sum(len(ln) for s in P114_STEPS for ln in s["lines"])
 
 
-# ==========================================================
-# ⌨️ "이 문장을 다 치려면 자판을 몇 번 눌러야 하는가" 를 계산합니다.
-#    (한글 한 글자는 자음·모음을 2~4번 눌러야 만들어집니다)
-#    사람이 직접 치면 이 횟수만큼 자판이 눌립니다.
-#    자동으로 채워 넣으면 자판을 거의 누르지 않아 바로 표가 납니다.
-# ==========================================================
-_P_JUNG = list("ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ")
-_P_JONG = [""] + list("ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ")
-_P_DBL_V = set("ㅘㅙㅚㅝㅞㅟㅢ")
-_P_DBL_F = set("ㄳㄵㄶㄺㄻㄼㄽㄾㄿㅀㅄ")
-
-
-def _p_key_count(ch):
-    o = ord(ch)
-    if 0xAC00 <= o <= 0xD7A3:
-        i = o - 0xAC00
-        jung, jong = (i % 588) // 28, i % 28
-        n = 1                                    # 첫 자음
-        n += 2 if _P_JUNG[jung] in _P_DBL_V else 1   # 모음
-        if jong:
-            n += 2 if _P_JONG[jong] in _P_DBL_F else 1   # 받침
-        return n
-    return 1
-
-
-KEYS_NEEDED = sum(_p_key_count(c) for s in P114_STEPS for ln in s["lines"] for c in ln)
-KEYS_MIN = int(KEYS_NEEDED * 0.6)   # 이보다 적게 눌렀으면 직접 친 것으로 보기 어렵습니다.
-
-
-def _p_verdict(auto, paste, keys):
-    """도전 한 번을 보고 '정상 / 부정 의심'을 판정합니다. (표기만 하고 순위는 그대로 둡니다)"""
-    why = []
-    if auto > 0:
-        why.append("자동완성·자동채우기 %d회" % auto)
-    if paste > 0:
-        why.append("붙여넣기·끌어넣기 %d회" % paste)
-    if why:
-        return "⚠️ 부정 의심", " · ".join(why)
-    if keys <= 0:
-        return "❓ 확인 불가", "자판 입력이 기록되지 않았습니다 (오래된 브라우저이거나 화면을 새로고침한 경우)"
-    if keys < KEYS_MIN:
-        return "⚠️ 확인 필요", ("자판을 %d번만 눌렀습니다 (직접 치면 약 %d번)"
-                            % (keys, KEYS_NEEDED))
-    return "✅ 정상", ""
-
-
-def _p_parse_result(raw):
-    """화면에서 넘어온 '기록|자동완성|붙여넣기|자판수' 를 나눠 읽습니다."""
-    parts = str(raw or "").split("|")
-    sec = _p_float(parts[0], 0.0)
-
-    def _i(k):
-        try:
-            return int(float(str(parts[k]).strip()))
-        except Exception:
-            return 0
-    auto = _i(1) if len(parts) > 1 else 0
-    paste = _i(2) if len(parts) > 2 else 0
-    keys = _i(3) if len(parts) > 3 else 0
-    return sec, auto, paste, keys
-
-
 class P114Busy(Exception):
     """구글 시트가 잠깐 응답하지 않을 때."""
     pass
@@ -169,17 +106,6 @@ def init_gspread_p114():
     return _p_retry(client.open, P_DB)
 
 
-def _p_fix_headers(ws, first, headers):
-    """시트에 없는 열 이름(예: 새로 생긴 '판정')을 첫 줄에 자동으로 채워 넣습니다."""
-    try:
-        for i, name in enumerate(headers):
-            cur = first[i] if i < len(first) else ""
-            if str(cur).strip() == "" and name:
-                _p_retry(ws.update_cell, 1, i + 1, name)
-    except Exception:
-        pass
-
-
 @st.cache_resource(show_spinner=False)
 def get_p114_ws():
     """leaderboard 탭. 없으면 만들고, 열 이름도 없으면 넣어 줍니다."""
@@ -194,8 +120,6 @@ def get_p114_ws():
         first = _p_retry(ws.row_values, 1)
         if not first:
             _p_retry(ws.append_row, P_HEADERS)
-        else:
-            _p_fix_headers(ws, first, P_HEADERS)
     except Exception:
         pass
     return ws
@@ -215,8 +139,6 @@ def get_p114_log_ws():
         first = _p_retry(ws.row_values, 1)
         if not first:
             _p_retry(ws.append_row, P_LOG_HEADERS)
-        else:
-            _p_fix_headers(ws, first, P_LOG_HEADERS)
     except Exception:
         pass
     return ws
@@ -231,7 +153,7 @@ def get_p114_attempts():
         return []
 
 
-def save_p114_attempt(user, score, auto=0, paste=0, keys=0):
+def save_p114_attempt(user, score):
     """도전 한 번을 그대로 기록해 둡니다. (순위와 별개로 전부 남습니다)"""
     try:
         ws = get_p114_log_ws()
@@ -246,8 +168,7 @@ def save_p114_attempt(user, score, auto=0, paste=0, keys=0):
                 nth += 1
 
         sec = _p_float(score, 0)
-        tpm = round(KEYS_NEEDED / sec * 60) if sec > 0 else 0
-        verdict, why = _p_verdict(auto, paste, keys)
+        tpm = round(TOTAL_CHARS / sec * 60) if sec > 0 else 0
 
         _p_retry(ws.append_row, [
             now_str,
@@ -260,11 +181,6 @@ def save_p114_attempt(user, score, auto=0, paste=0, keys=0):
             sec,
             tpm,
             nth,
-            verdict,
-            auto,
-            paste,
-            keys,
-            why,
         ])
         get_p114_attempts.clear()
         return True
@@ -296,13 +212,13 @@ def get_p114_board():
     return _p_retry(get_p114_ws().get_all_records)
 
 
-def save_p114_score(name, team, rank_group, score, verdict="✅ 정상"):
+def save_p114_score(name, team, rank_group, score):
     try:
         ws = get_p114_ws()
         # 서버 시간이 아니라 '한국 시간(KST)'으로 기록합니다.
         kst = datetime.timezone(datetime.timedelta(hours=9))
         today_str = datetime.datetime.now(kst).strftime("%Y-%m-%d %H:%M")
-        _p_retry(ws.append_row, [name, team, rank_group, score, today_str, verdict])
+        _p_retry(ws.append_row, [name, team, rank_group, score, today_str])
         get_p114_board.clear()
         return True
     except Exception:
@@ -583,8 +499,7 @@ def _game_tab():
             % (_p_esc(user["name"]), _p_esc(user.get("team") or "-"), _p_esc(user["group"])),
             unsafe_allow_html=True)
         if wc2.button("로그아웃", key="p_logout", use_container_width=True):
-            for k in ('p_user', 'p_is_playing', 'p_step', 'p_hidden_time', 'p_score_saved',
-                      'p_final_time', 'p_verdict', 'p_verdict_why'):
+            for k in ('p_user', 'p_is_playing', 'p_step', 'p_hidden_time', 'p_score_saved'):
                 if k in st.session_state:
                     del st.session_state[k]
             st.rerun()
@@ -603,10 +518,7 @@ def _game_tab():
             components.html(
                 "<script>sessionStorage.removeItem('p114StartTime');"
                 "sessionStorage.removeItem('p114EndTime');"
-                "sessionStorage.removeItem('p114Sent');"
-                "sessionStorage.removeItem('p114Auto');"
-                "sessionStorage.removeItem('p114Paste');"
-                "sessionStorage.removeItem('p114Keys');</script>", height=0)
+                "sessionStorage.removeItem('p114Sent');</script>", height=0)
 
             st.info("💡 **게임 규칙:** 첫 글자를 치는 순간부터 초시계가 작동합니다. "
                     "총 **%d줄**이며, 틀린 글자는 **빨갛게** 바로 표시됩니다. "
@@ -648,12 +560,6 @@ def _game_tab():
                         let finalTime = ((end - start) / 1000).toFixed(2);
                         timerDisplay.innerText = finalTime;
 
-                        // 👉 기록과 함께 '증거'(자동완성 시도·붙여넣기 시도·누른 자판 수)도 보냅니다.
-                        const payload = finalTime
-                            + "|" + (sessionStorage.getItem('p114Auto')  || '0')
-                            + "|" + (sessionStorage.getItem('p114Paste') || '0')
-                            + "|" + (sessionStorage.getItem('p114Keys')  || '0');
-
                         let attempts = 0;
                         let trySend = setInterval(() => {{
                             const hiddenInput = parent.document.querySelector('input[aria-label="p_hidden_time"]');
@@ -661,7 +567,7 @@ def _game_tab():
                                 clearInterval(trySend);
                                 if (!sessionStorage.getItem('p114Sent')) {{
                                     let setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                                    setter.call(hiddenInput, payload);
+                                    setter.call(hiddenInput, finalTime);
                                     hiddenInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
                                     setTimeout(() => {{
                                         hiddenInput.focus();
@@ -684,44 +590,6 @@ def _game_tab():
                             }}
                         }}, 50);
 
-                        // 📋 증거 남기기 : 막힌 횟수와 실제로 누른 자판 수를 세어 둡니다.
-                        const pBump = (name, n) => {{
-                            try {{
-                                const v = parseInt(sessionStorage.getItem(name) || '0') + (n || 1);
-                                sessionStorage.setItem(name, v);
-                            }} catch(x) {{}}
-                        }};
-
-                        // ⛔ 꼼수(붙여넣기·자동완성·자동채우기) 막기 도우미
-                        let _pLastWarn = 0;
-                        const pWarn = (msg) => {{
-                            const now = Date.now();
-                            if (now - _pLastWarn < 1500) return;   // 경고창이 쏟아지지 않게
-                            _pLastWarn = now;
-                            try {{ alert(msg); }} catch(x) {{}}
-                        }};
-                        // 브라우저가 '한꺼번에 채워 넣는' 방식들
-                        const P_BAD_INPUT = ['insertReplacementText', 'insertFromPaste',
-                                             'insertFromPasteAsQuotation', 'insertFromDrop',
-                                             'insertFromYank', 'insertFromComposition'];
-                        let P_SETV;
-                        try {{
-                            P_SETV = Object.getOwnPropertyDescriptor(
-                                window.parent.HTMLInputElement.prototype, "value").set;
-                        }} catch(x) {{
-                            P_SETV = Object.getOwnPropertyDescriptor(
-                                window.HTMLInputElement.prototype, "value").set;
-                        }}
-                        const pRevert = (el, prev) => {{
-                            el.dataset.pGuard = "1";
-                            try {{
-                                P_SETV.call(el, prev);
-                                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                            }} catch(x) {{}}
-                            el.dataset.pPrev = prev;
-                            delete el.dataset.pGuard;
-                        }};
-
                         // 글자 맞춰 보기 + 커서 자동 이동
                         setInterval(() => {{
                             try {{
@@ -737,55 +605,9 @@ def _game_tab():
                                     if (doc.activeElement === ins[k]) {{ onMine = true; activeIdx = k; }}
 
                                     if (!ins[k].dataset.setupDone) {{
-                                        const block = e => {{
-                                            e.preventDefault();
-                                            pBump('p114Paste');
-                                            pWarn("⚠️ 꼼수 금지! 직접 치세요.");
-                                        }};
+                                        const block = e => {{ e.preventDefault(); alert("⚠️ 꼼수 금지! 직접 치세요."); }};
                                         ins[k].addEventListener('paste', block);
                                         ins[k].addEventListener('drop', block);
-
-                                        // 👉 브라우저 자동완성·자동채우기 자체를 꺼 둡니다.
-                                        ins[k].setAttribute('autocomplete', 'off');
-                                        ins[k].setAttribute('autocorrect', 'off');
-                                        ins[k].setAttribute('autocapitalize', 'off');
-                                        ins[k].setAttribute('spellcheck', 'false');
-                                        ins[k].setAttribute('aria-autocomplete', 'none');
-                                        ins[k].setAttribute('data-form-type', 'other');
-                                        ins[k].setAttribute('data-lpignore', 'true');   // 라스트패스 등
-                                        ins[k].setAttribute('data-1p-ignore', 'true');  // 1Password 등
-                                        ins[k].removeAttribute('list');
-                                        // 이름이 매번 달라지면 브라우저가 '전에 쓴 값'을 기억하지 못합니다.
-                                        ins[k].setAttribute('name',
-                                            'p114_' + Math.random().toString(36).slice(2));
-                                        try {{
-                                            const _f = ins[k].closest('form');
-                                            if (_f) _f.setAttribute('autocomplete', 'off');
-                                        }} catch(x) {{}}
-
-                                        // 👉 그래도 한꺼번에 채워지면 되돌립니다.
-                                        ins[k].dataset.pPrev = ins[k].value || '';
-                                        ins[k].addEventListener('beforeinput', e => {{
-                                            if (P_BAD_INPUT.indexOf(e.inputType) >= 0) {{
-                                                e.preventDefault();
-                                                pBump('p114Auto');
-                                                pWarn("⚠️ 자동완성은 사용할 수 없습니다. 직접 치세요.");
-                                            }}
-                                        }});
-                                        ins[k].addEventListener('input', e => {{
-                                            const el = e.target;
-                                            if (el.dataset.pGuard) return;      // 되돌리는 중
-                                            const prev = el.dataset.pPrev || '';
-                                            const now  = el.value || '';
-                                            const jump = (now.length - prev.length) > 4;
-                                            if (P_BAD_INPUT.indexOf(e.inputType) >= 0 || jump) {{
-                                                pRevert(el, prev);
-                                                pBump('p114Auto');
-                                                pWarn("⚠️ 자동완성·붙여넣기는 사용할 수 없습니다. 직접 치세요.");
-                                                return;
-                                            }}
-                                            el.dataset.pPrev = now;
-                                        }});
                                         ins[k].addEventListener('keydown', e => {{
                                             if (e.key === 'Enter') {{
                                                 // 👉 엔터를 누르면 아래 입력칸으로 커서를 옮깁니다.
@@ -797,11 +619,6 @@ def _game_tab():
                                                 if (!sessionStorage.getItem('p114StartTime')) {{
                                                     sessionStorage.setItem('p114StartTime', Date.now());
                                                 }}
-                                                // 글자를 만드는 자판만 셉니다. (Shift·Ctrl 등은 빼고)
-                                                const SKIP = ['Shift','Control','Alt','Meta','CapsLock',
-                                                              'ArrowLeft','ArrowRight','ArrowUp','ArrowDown',
-                                                              'Home','End','PageUp','PageDown','Escape'];
-                                                if (SKIP.indexOf(e.key) < 0) pBump('p114Keys');
                                             }}
                                         }});
                                         ins[k].dataset.setupDone = "true";
@@ -877,48 +694,26 @@ def _game_tab():
                                         label_visibility="collapsed")
 
                 if js_time and 'p_score_saved' not in st.session_state:
-                    # 기록 + 증거(자동완성 시도·붙여넣기 시도·누른 자판 수)를 함께 읽습니다.
-                    final_time_float, n_auto, n_paste, n_keys = _p_parse_result(js_time)
-                    verdict, why = _p_verdict(n_auto, n_paste, n_keys)
-                    st.session_state.p_final_time = final_time_float
-                    st.session_state.p_verdict = verdict
-                    st.session_state.p_verdict_why = why
-
+                    final_time_float = _p_float(js_time, 0.0)
                     with st.spinner("📡 최종 기록 확인 및 명예의 전당 등록 중... (약 2~3초 소요)"):
-                        # ① 개인별 도전 기록 (attempts 탭) — 통계·검증용으로 전부 남깁니다.
-                        save_p114_attempt(user, final_time_float,
-                                          auto=n_auto, paste=n_paste, keys=n_keys)
+                        # ① 개인별 도전 기록 (attempts 탭) — 통계용으로 전부 남깁니다.
+                        save_p114_attempt(user, final_time_float)
                         # ② 순위표 (leaderboard 탭)
                         if save_p114_score(user["name"], user.get("team", ""),
-                                           user["group"], final_time_float,
-                                           verdict=verdict):
+                                           user["group"], final_time_float):
                             st.session_state.p_score_saved = True
                     st.rerun()
 
                 if 'p_score_saved' in st.session_state:
-                    _t = st.session_state.get("p_final_time", 0.0)
-                    _v = st.session_state.get("p_verdict", "✅ 정상")
-                    if _v == "✅ 정상":
-                        st.balloons()
+                    st.balloons()
                     st.markdown(f"""
                     <div class="p-rank-card">
                         <h2>🎉 {_p_esc(user['name'])}님, 완료를 축하합니다!</h2>
-                        <h1 style="color: #2F6FB5;">⏱️ 최종 기록: {_t:.2f}초</h1>
+                        <h1 style="color: #2F6FB5;">⏱️ 최종 기록: {js_time}초</h1>
                         <p><b>{_p_esc(user['group'])}</b> 부문에 기록이 등록되었습니다.</p>
                         <p>114 프로젝트, 이제 손끝으로도 기억하시겠죠?</p>
                     </div>
                     """, unsafe_allow_html=True)
-
-                    # 정상이 아니면 본인에게도 알려 줍니다. (순위에서 빼지는 않습니다)
-                    if _v.startswith("⚠️"):
-                        st.warning("이번 기록은 **%s** 으로 표시되었습니다.\n\n사유 : %s\n\n"
-                                   "자동완성·붙여넣기 없이 직접 입력한 기록만 인정됩니다. "
-                                   "다시 도전해 주세요."
-                                   % (_v.replace("⚠️ ", ""),
-                                      st.session_state.get("p_verdict_why", "")))
-                    elif _v.startswith("❓"):
-                        st.info("자판 입력이 기록되지 않아 **확인 대상**으로 표시되었습니다. "
-                                "(화면을 새로고침했거나 오래된 브라우저인 경우 생길 수 있습니다)")
 
                     st.divider()
                     if st.button("🔄 처음부터 다시 도전하기", key="p_again_btn"):
