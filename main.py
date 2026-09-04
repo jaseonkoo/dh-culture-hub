@@ -282,7 +282,7 @@ PLATFORM_MENU = [
          "desc": "동료의 직무 노하우를 배우는 사내 강의"},
         {"page": "library", "ico": "📚", "title": "사내 도서관",
          "desc": "셀프로 직접 빌리고 반납하는 사내 도서관"},
-        {"page": "edu", "ico": "📊", "title": "교육이수 현황",
+        {"page": "edu", "ico": "📊", "title": "교육이수제 현황",
          "desc": "내 연간 교육 이수 내역과 교육비를 조회합니다",
          "gate": "dhfeedhr"},
     ]),
