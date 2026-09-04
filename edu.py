@@ -4,7 +4,7 @@ import datetime
 import pandas as pd
 
 # ==========================================================
-# 📊 임직원 교육 이수 현황 (edu.py)
+# 📊 교육이수제 현황 (edu.py)
 #   - 원래 따로 돌던 프로그램을 플랫폼 안으로 옮긴 것입니다.
 #   - 구글 시트를 읽는 방법을 두 가지로 준비해 두었습니다.
 #       ① 서비스 계정(gspread) — 플랫폼의 다른 프로그램과 같은 방식
@@ -124,30 +124,47 @@ def _e_int_text(v):
 
 EDU_CSS = """
 <style>
+    /* 원래 프로그램(app.py)의 꾸미기를 그대로 옮겼습니다. */
+    .stApp { background-color: #f8f9fa !important; background-image: none !important; }
+
     h1, h2, h3 { color: #2c3e50 !important; font-weight: 700; letter-spacing: -0.5px; }
 
-    .edu-wrap table {
+    div.stButton > button:first-child,
+    div.stFormSubmitButton > button:first-child {
+        background-color: #4361ee; color: white; border: none;
+        border-radius: 8px; font-weight: 600; padding: 0.5rem 1rem;
+        transition: all 0.3s ease; box-shadow: 0 4px 6px rgba(67, 97, 238, 0.15);
+    }
+    div.stButton > button:first-child:hover,
+    div.stFormSubmitButton > button:first-child:hover {
+        background-color: #3f37c9; transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(67, 97, 238, 0.2);
+    }
+
+    table {
         border-collapse: collapse; width: 100%; background-color: white;
         border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.02);
     }
-    .edu-wrap th {
+    th {
         background-color: #f1f3f5 !important; color: #495057 !important;
         font-weight: 600; font-size: 14px; text-align: center !important;
         padding: 12px 15px !important; border-bottom: 2px solid #dee2e6 !important;
         border-left: none !important; border-right: none !important;
     }
-    .edu-wrap td {
+    td {
         text-align: center !important; color: #343a40 !important;
         padding: 10px 15px !important; border-bottom: 1px solid #e9ecef !important;
         border-left: none !important; border-right: none !important;
     }
-    .edu-wrap tbody tr:hover { background-color: #f8f9fa !important; }
-    .edu-wrap tbody tr:last-child { background-color: white !important; }
-    .edu-wrap tbody tr:last-child td {
+
+    tbody tr:hover { background-color: #f8f9fa !important; }
+
+    tbody tr:last-child { background-color: white !important; }
+    tbody tr:last-child td {
         font-weight: 700 !important; color: #343a40 !important;
         border-top: 2px solid #ced4da !important; background-color: white !important;
     }
-    .edu-sub { color: #6c757d; margin-bottom: 1.5rem; }
+    .edu-sub { color: #6c757d; margin-bottom: 2rem; }
 </style>
 """
 
@@ -158,7 +175,7 @@ def run_edu():
         _run_edu()
     except Exception as e:
         code = getattr(getattr(e, "response", None), "status_code", None)
-        st.markdown("### 📊 임직원 교육 이수 현황")
+        st.markdown("### 📊 교육이수제 현황")
         if code in (429, 500, 502, 503) or isinstance(e, EduBusy):
             st.warning("⏳ 구글 시트가 잠시 응답하지 않고 있습니다. "
                        "**5~10초 뒤 아래 [다시 시도] 버튼을 눌러 주세요.**")
@@ -177,7 +194,7 @@ def run_edu():
 def _run_edu():
     st.markdown(EDU_CSS, unsafe_allow_html=True)
 
-    st.title("📊 임직원 교육 이수 현황")
+    st.title("📊 교육이수제 현황")
     st.markdown("<p class='edu-sub'>개인별 연간 필수 교육 이수 내역 및 "
                 "교육비 집계를 실시간으로 조회합니다.</p>", unsafe_allow_html=True)
 
@@ -188,15 +205,18 @@ def _run_edu():
 
     # 사번·성명은 '엔터'로도 조회되도록 폼 안에 넣었습니다.
     with st.form("edu_search_form", clear_on_submit=False):
-        col1, col2, col3, col4 = st.columns(4)
-        search_id = col1.text_input("사번 (숫자 입력)", key="edu_id")
-        search_name = col2.text_input("성명", key="edu_name")
-        start_year = col3.selectbox("시작 연도", years,
-                                    index=years.index(current_year - 1), key="edu_y1")
-        end_year = col4.selectbox("종료 연도", years,
-                                  index=years.index(current_year), key="edu_y2")
-        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-        go = st.form_submit_button("내 교육 이수 현황 확인하기", type="primary")
+        # 다섯 칸을 똑같은 너비로 나누고, 마지막 칸에 버튼을 놓습니다.
+        c1, c2, c3, c4, c5 = st.columns(5)
+        search_id = c1.text_input("사번 (숫자 입력)", key="edu_id")
+        search_name = c2.text_input("성명", key="edu_name")
+        start_year = c3.selectbox("시작 연도", years,
+                                  index=years.index(current_year - 1), key="edu_y1")
+        end_year = c4.selectbox("종료 연도", years,
+                                index=years.index(current_year), key="edu_y2")
+        # 버튼을 왼쪽 입력칸들과 같은 높이에 맞추기 위한 빈 자리입니다.
+        c5.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        go = c5.form_submit_button("조회하기", type="primary",
+                                   use_container_width=True)
 
     if not go:
         return
@@ -287,16 +307,4 @@ def _run_edu():
     st.subheader("✅ %s님의 교육 결과 (%d년 ~ %d년)"
                  % (str(search_name).strip(), start_year, end_year))
 
-    m1, m2, m3 = st.columns(3)
-    m1.metric("총 이수 시간", "%s 시간" % _e_int_text(total_time))
-    m2.metric("총 교육비", "%s 원" % format(int(total_cost), ","))
-    m3.metric("이수 건수", "%d 건" % max(0, len(final_data) - 1 -
-                                      sum(1 for r in final_data
-                                          if r.get("교육명") == "-")))
-
-    st.markdown("<div class='edu-wrap'>", unsafe_allow_html=True)
     st.table(display_df)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.caption("※ 자료는 1분에 한 번 새로 읽어 옵니다. "
-               "방금 입력한 내용이 안 보이면 잠시 뒤 다시 조회해 주세요.")
