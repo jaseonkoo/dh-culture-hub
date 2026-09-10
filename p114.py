@@ -12,12 +12,22 @@ P_DB = "대한사료_114P Challenge_DB"
 P_TAB = "leaderboard"                 # 순위표 (화면에 보이는 것)
 P_MEMBER_TAB = "members"              # 사번·이름 명단
 P_LOG_TAB = "attempts"                # 👈 개인별 도전 기록 (통계용, 자동 생성됩니다)
+P_CFG_TAB = "config"                  # 👈 공개 스위치 (자동 생성됩니다)
 
 P_HEADERS = ["이름", "소속팀", "직급", "기록(초)", "달성일", "검증"]
 P_LOG_HEADERS = ["도전일시", "사번", "이름", "소속팀", "구분", "직급",
                  "순위부문", "기록(초)", "분당타수", "도전회차",
                  "판정", "자동완성시도", "붙여넣기시도", "키입력수",
                  "서버측정(초)", "비고"]
+
+# 👇 config 탭에 자동으로 만들어지는 스위치입니다.
+#    '값' 칸을  숨김 → 공개  로 바꾸면 명예의 전당에 기록(초)이 나타납니다.
+P_CFG_HEADERS = ["항목", "값", "설명"]
+P_CFG_KEY = "기록공개"
+P_CFG_SEED = [P_CFG_KEY, "숨김",
+              "공개 라고 적으면 명예의 전당에 기록(초)이 나타납니다. (숨김 / 공개)"]
+P_CFG_YES = ("공개", "표시", "o", "O", "y", "Y", "yes", "YES", "예",
+             "true", "TRUE", "True", "1", "on", "ON")
 
 TOP_ALL = 5      # 👈 전체 순위에서 보여 줄 인원
 TOP_GROUP = 3    # 👈 직급별로 보여 줄 인원
@@ -290,6 +300,52 @@ def save_p114_attempt(user, score, auto=0, paste=0, keys=0, server_sec=0.0):
         return False
 
 
+@st.cache_resource(show_spinner=False)
+def get_p114_cfg_ws():
+    """config 탭(공개 스위치). 없으면 자동으로 만들고 기본값 '숨김'을 넣습니다."""
+    doc = init_gspread_p114()
+    try:
+        ws = _p_retry(doc.worksheet, P_CFG_TAB)
+    except gspread.exceptions.WorksheetNotFound:
+        ws = _p_retry(doc.add_worksheet, title=P_CFG_TAB, rows=20, cols=4)
+        _p_retry(ws.append_row, P_CFG_HEADERS)
+        _p_retry(ws.append_row, P_CFG_SEED)
+        return ws
+    try:
+        first = _p_retry(ws.row_values, 1)
+        if not first:
+            _p_retry(ws.append_row, P_CFG_HEADERS)
+            _p_retry(ws.append_row, P_CFG_SEED)
+        else:
+            _p_fix_headers(ws, first, P_CFG_HEADERS)
+            vals = _p_retry(ws.col_values, 1)
+            if P_CFG_KEY not in [str(v).strip() for v in vals]:
+                _p_retry(ws.append_row, P_CFG_SEED)
+    except Exception:
+        pass
+    return ws
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def is_score_public():
+    """기록(초)을 지금 공개할지 말지를 config 탭에서 읽어 옵니다.
+       읽지 못하면 '숨김'으로 봅니다. (실수로 미리 공개되지 않도록)"""
+    try:
+        for r in _p_retry(get_p114_cfg_ws().get_all_records):
+            if str(r.get("항목", "")).strip() == P_CFG_KEY:
+                return str(r.get("값", "")).strip() in P_CFG_YES
+    except Exception:
+        pass
+    return False
+
+
+def _p_sec_text(sec, public):
+    """공개 전에는 기록 대신 자물쇠를 보여 줍니다."""
+    if public:
+        return "%.2f초" % float(sec or 0)
+    return "🔒 ??.??"
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def get_p114_members():
     """members 탭(사번·이름 명단)을 읽어 옵니다."""
@@ -300,7 +356,7 @@ def get_p114_members():
 
 def _reset_p114_conn():
     for f in (init_gspread_p114, get_p114_ws, get_p114_board, get_p114_members,
-              get_p114_log_ws, get_p114_attempts):
+              get_p114_log_ws, get_p114_attempts, get_p114_cfg_ws, is_score_public):
         try:
             f.clear()
         except Exception:
@@ -481,6 +537,11 @@ P114_CSS = """
              word-break:keep-all; }
 .p-top .sc { font-size:1.3em; font-weight:bold; color:#ff4b4b;
              background:#fff1f1; border-radius:8px; padding:6px 0; }
+/* 공개 전 : 기록 자리를 자물쇠로 가립니다 */
+.p-top .sc.lock { color:#94a3b8; background:#F1F5F9; letter-spacing:1px; }
+.p-lockmsg { background:#FFF7E6; border:1px solid #FFD591; border-radius:10px;
+             padding:14px 16px; color:#8C5A00; font-size:.95rem; line-height:1.6;
+             margin-bottom:14px; }
 
 /* 직급별 참여 현황 : 모든 칸 너비를 똑같이 */
 .p-tbl { width:100%; table-layout:fixed; border-collapse:collapse;
@@ -974,7 +1035,16 @@ def _rank_tab():
 
         if st.button("🔄 순위 새로고침", key="p_refresh_btn"):
             get_p114_board.clear()
+            is_score_public.clear()
             st.rerun()
+
+        public = is_score_public()
+        if not public:
+            st.markdown(
+                "<div class='p-lockmsg'>🔒 <b>기록(초)은 아직 공개하지 않습니다.</b><br>"
+                "지금은 순위만 보여 드립니다. 기록은 챌린지 <b>마지막 날 한 번에 공개</b>됩니다.<br>"
+                "누가 몇 초인지 모르는 지금이 기회입니다. 부담 없이 도전해 보세요!</div>",
+                unsafe_allow_html=True)
 
         board = get_p114_board()
 
@@ -1019,12 +1089,13 @@ def _rank_tab():
                         "<div class='nm'>%s</div>"
                         "<div class='tm'>%s</div>"
                         "<div class='gp'>%s</div>"
-                        "<div class='sc'>%.2f초</div>"
+                        "<div class='sc%s'>%s</div>"
                         "</div>" % (marks[i][1], marks[i][0],
                                     _p_esc(r.get('이름', '-')),
                                     _p_esc(r.get('소속팀', '-')),
                                     _p_esc(r.get('직급', '-')),
-                                    _p_float(r.get('기록(초)'), 0)),
+                                    "" if public else " lock",
+                                    _p_sec_text(_p_float(r.get('기록(초)'), 0), public)),
                         unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
@@ -1036,12 +1107,14 @@ def _rank_tab():
             def _cell(item):
                 if not item:
                     return "<td class='empty'>-</td>"
+                _color = "#ff4b4b" if public else "#94a3b8"
                 return ("<td><b>%s</b><br>"
                         "<span style='color:#64748b;font-size:.9em'>%s</span><br>"
-                        "<span style='color:#ff4b4b;font-weight:700'>%.2f초</span></td>"
+                        "<span style='color:%s;font-weight:700'>%s</span></td>"
                         % (_p_esc(item.get('이름', '-')),
                            _p_esc(item.get('소속팀', '-')),
-                           _p_float(item.get('기록(초)'), 0)))
+                           _color,
+                           _p_sec_text(_p_float(item.get('기록(초)'), 0), public)))
 
             body = []
             for g in RANK_GROUPS:
@@ -1059,3 +1132,5 @@ def _rank_tab():
                 unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
             st.caption("※ 한 사람이 여러 번 도전한 경우 **가장 빠른 기록**만 순위에 반영됩니다.")
+            if not public:
+                st.caption("🔒 기록(초)은 마지막 날 공개됩니다. 순위는 실시간으로 반영되고 있습니다.")
