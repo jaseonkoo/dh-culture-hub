@@ -1042,7 +1042,7 @@ def _rank_tab():
         if not public:
             st.markdown(
                 "<div class='p-lockmsg'>🔒 <b>기록(초)은 아직 공개하지 않습니다.</b><br>"
-                "지금은 순위만 보여 드립니다. 기록은 챌린지 <b>마지막 날 한 번에 공개</b>됩니다.<br>"
+                "지금은 순위만 보여 드립니다. 최종 기록은 <b>D-Talk's Day에 공개</b>됩니다.<br>"
                 "누가 몇 초인지 모르는 지금이 기회입니다. 부담 없이 도전해 보세요!</div>",
                 unsafe_allow_html=True)
 
