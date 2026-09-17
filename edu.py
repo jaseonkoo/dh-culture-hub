@@ -165,7 +165,117 @@ EDU_CSS = """
         border-top: 2px solid #ced4da !important; background-color: white !important;
     }
     .edu-sub { color: #6c757d; margin-bottom: 2rem; }
+
+    /* ===== 승진·직책발령 필수교육 안내표 =====
+       위쪽 결과표와 섞이지 않도록 .edu-req 안에서만 적용됩니다. */
+    .edu-req-wrap { margin-top: 10px; overflow-x: auto; }
+    .edu-req-title {
+        text-align: center; font-size: 1.2rem; font-weight: 800; color: #1B1F24;
+        padding: 12px 0 10px; margin: 0; border-bottom: 3px solid #333;
+    }
+    table.edu-req {
+        width: 100%; min-width: 620px; table-layout: fixed;
+        border-collapse: collapse !important; margin-top: 14px;
+        background: #fff !important; border-radius: 0 !important;
+        box-shadow: none !important;
+    }
+    .edu-req th.hd {
+        background-color: #4E85C4 !important; color: #ffffff !important;
+        font-weight: 700 !important; font-size: .92rem !important;
+        text-align: center !important; line-height: 1.4 !important;
+        padding: 12px 6px !important; border: 1px solid #ffffff !important;
+    }
+    .edu-req td {
+        background-color: #ffffff !important; color: #222222 !important;
+        text-align: center !important; vertical-align: middle !important;
+        font-size: .92rem !important; line-height: 1.55 !important;
+        padding: 16px 8px !important; border: 1px solid #C2C9D2 !important;
+        word-break: keep-all !important;
+    }
+    .edu-req td.lb, .edu-req td.lb2 {
+        background-color: #D9D9D9 !important; font-weight: 700 !important;
+    }
+    .edu-req td.dot { font-size: 1.1rem !important; }
+    .edu-req td.memo { line-height: 2.0 !important; }
+    /* 가운데 세 과목 사이는 점선으로 나눕니다 (원본 자료와 같게)
+       양쪽 칸 모두 점선으로 맞춰야 점선으로 보입니다. */
+    .edu-req td.cA { border-right: 1px dashed #A8B2BD !important; }
+    .edu-req td.cB { border-left: 1px dashed #A8B2BD !important;
+                     border-right: 1px dashed #A8B2BD !important; }
+    .edu-req td.cC { border-left: 1px dashed #A8B2BD !important; }
+    /* 위쪽 결과표용 규칙이 여기까지 넘어오지 않도록 막습니다 */
+    .edu-req tbody tr:hover td { background-color: #ffffff !important; }
+    .edu-req tbody tr:hover td.lb, .edu-req tbody tr:hover td.lb2 {
+        background-color: #D9D9D9 !important; }
+    .edu-req tbody tr:last-child td {
+        font-weight: 400 !important; border-top: 1px solid #C2C9D2 !important;
+    }
+    .edu-req tbody tr:last-child td.lb, .edu-req tbody tr:last-child td.lb2 {
+        font-weight: 700 !important; background-color: #D9D9D9 !important;
+    }
 </style>
+"""
+
+
+# ==========================================================
+# 📋 승진 및 직책발령 심사시 필수교육 (안내표)
+#    첨부해 주신 자료를 그대로 옮긴 것입니다.
+#    내용을 바꾸시려면 아래 글자만 고치시면 됩니다.
+# ==========================================================
+EDU_REQ_HTML = """
+<div class="edu-req-wrap">
+  <div class="edu-req-title">승진 및 직책발령 심사시 필수교육</div>
+  <table class="edu-req">
+    <thead>
+      <tr>
+        <th class="hd" colspan="2" rowspan="2" style="width:32%">구 &nbsp;분</th>
+        <th class="hd" colspan="4">대한사료 필수교육</th>
+      </tr>
+      <tr>
+        <th class="hd" style="width:15%">면접관<br>양성교육</th>
+        <th class="hd" style="width:15%">경영<br>비즈니스<br>교육</th>
+        <th class="hd" style="width:15%">DX교육</th>
+        <th class="hd" style="width:23%">비고</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="lb" style="width:12%">직책<br>발령<br>심사</td>
+        <td class="lb2">팀원<br>→<br>사업부장, 팀장</td>
+        <td class="dot cA">●</td>
+        <td class="dot cB">●</td>
+        <td class="dot cC">●</td>
+        <td class="memo">사업부장/팀장<br>발령전<br>최소 1회 이수</td>
+      </tr>
+      <tr>
+        <td class="lb" rowspan="4">승진<br>심사</td>
+        <td class="lb2">차장 → 부장</td>
+        <td class="cA"></td>
+        <td class="dot cB">●</td>
+        <td class="dot cC">●</td>
+        <td class="memo" rowspan="4">승진심사시<br><br>직급 기간내<br><br>최소 1회 이수</td>
+      </tr>
+      <tr>
+        <td class="lb2">과장 → 차장</td>
+        <td class="cA"></td>
+        <td class="dot cB">●</td>
+        <td class="dot cC">●</td>
+      </tr>
+      <tr>
+        <td class="lb2">대리 → 과장</td>
+        <td class="cA"></td>
+        <td class="cB"></td>
+        <td class="dot cC">●</td>
+      </tr>
+      <tr>
+        <td class="lb2">사원 → 대리</td>
+        <td class="cA"></td>
+        <td class="cB"></td>
+        <td class="dot cC">●</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
 """
 
 
@@ -200,6 +310,16 @@ def _run_edu():
 
     df = load_edu_data()
 
+    # ① 조회 화면 + 결과표
+    _edu_search(df)
+
+    # ② 그 아래에 '승진 및 직책발령 심사시 필수교육' 안내표를 항상 보여 줍니다.
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(EDU_REQ_HTML, unsafe_allow_html=True)
+
+
+def _edu_search(df):
+    """사번·성명으로 찾아 결과표를 그립니다."""
     current_year = datetime.datetime.now().year
     years = list(range(current_year - 5, current_year + 2))
 
