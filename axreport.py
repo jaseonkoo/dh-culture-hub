@@ -608,40 +608,64 @@ def build_print_doc(person, report_html):
                AX_CSS, AX_PRINT_CSS, report_html))
 
 
-def _print_button_html(doc_html):
-    """[인쇄 / PDF로 저장] 단추. 눌리면 결과지만 따로 띄워 인쇄창을 엽니다."""
+def _action_buttons_html(doc_html):
+    """[인쇄하기] · [PDF로 저장] 두 단추.
+       누르면 결과지만 담긴 새 창이 열리고 인쇄 대화상자가 뜹니다.
+       PDF 쪽은 새 창 위에 '대상을 PDF로 저장으로 고르세요' 안내가 함께 나옵니다."""
     payload = json.dumps(doc_html)
     return """
-    <html><head><style>
-      body { margin:0; font-family:'Noto Sans KR',sans-serif; }
-      .pb { width:100%%; padding:11px 10px; font-size:.92rem; font-weight:700;
-            color:#fff; background:#12253F; border:0; border-radius:9px;
-            cursor:pointer; }
-      .pb:hover { background:#1D3A62; }
+    <html><head><meta charset="utf-8"><style>
+      body { margin:0; font-family:'Noto Sans KR','Malgun Gothic',sans-serif; }
+      .wrap { display:flex; gap:8px; }
+      .pb { flex:1; padding:11px 8px; font-size:.92rem; font-weight:700;
+            border:0; border-radius:9px; cursor:pointer; color:#fff; }
+      .p1 { background:#12253F; } .p1:hover { background:#1D3A62; }
+      .p2 { background:#C0392B; } .p2:hover { background:#A5321F; }
     </style></head><body>
-      <button class="pb" onclick="axPrint()">🖨️ 인쇄 / PDF로 저장</button>
+      <div class="wrap">
+        <button class="pb p1" onclick="axGo(false)">🖨️ 인쇄하기</button>
+        <button class="pb p2" onclick="axGo(true)">📄 PDF로 저장</button>
+      </div>
       <script>
         const AX_DOC = %s;
-        function axPrint() {
+        const AX_GUIDE = "<div style=\'font-family:sans-serif;background:#FFF4E5;"
+            + "border:1px solid #F0C48A;color:#8A4B00;border-radius:8px;"
+            + "padding:10px 13px;margin:9px 9px 0;font-size:13px;line-height:1.6\' "
+            + "class=\'ax-guide\'>📄 <b>PDF로 저장하는 방법</b> &nbsp;&middot;&nbsp; "
+            + "곧 열리는 인쇄창에서 <b>대상(프린터)</b> 을 <b>&lsquo;PDF로 저장&rsquo;</b> "
+            + "으로 바꾼 뒤 <b>[저장]</b> 을 누르세요. "
+            + "(이 안내문은 저장되는 파일에는 나오지 않습니다)</div>"
+            + "<style>@media print { .ax-guide { display:none !important; } }</style>";
+
+        function axDoc(pdf) {
+            if (!pdf) return AX_DOC;
+            // 본문 맨 앞에 안내문을 끼워 넣습니다.
+            const k = AX_DOC.indexOf("<body>");
+            if (k < 0) return AX_DOC;
+            return AX_DOC.slice(0, k + 6) + AX_GUIDE + AX_DOC.slice(k + 6);
+        }
+
+        function axGo(pdf) {
+            const html = axDoc(pdf);
             try {
                 const w = window.open('', '_blank');
                 if (w && w.document) {
                     w.document.open();
-                    w.document.write(AX_DOC);
+                    w.document.write(html);
                     w.document.close();
                     w.focus();
-                    setTimeout(function () { try { w.print(); } catch (e) {} }, 600);
+                    setTimeout(function () { try { w.print(); } catch (e) {} }, 700);
                     return;
                 }
             } catch (e) {}
             // 새 창이 막혔을 때 : 이 자리에 결과지를 펼쳐서 인쇄합니다.
             try {
                 document.open();
-                document.write(AX_DOC);
+                document.write(html);
                 document.close();
-                setTimeout(function () { window.print(); }, 600);
+                setTimeout(function () { window.print(); }, 700);
             } catch (e) {
-                alert('브라우저가 인쇄창을 막았습니다. 아래 [결과지 파일 저장] 을 눌러 주세요.');
+                alert('브라우저가 새 창을 막았습니다. 주소창 오른쪽의 팝업 차단을 풀어 주세요.');
             }
         }
       </script>
@@ -718,19 +742,11 @@ def _run_ax_report():
     report_html = build_report_html(person)
     doc_html = build_print_doc(person, report_html)
 
-    c1, c2, c3 = st.columns([1.2, 1.2, 1])
+    c1, c2 = st.columns([2.6, 1])
     with c1:
-        components.html(_print_button_html(doc_html), height=56)
+        components.html(_action_buttons_html(doc_html), height=56)
     with c2:
-        st.download_button(
-            "📥 결과지 파일 저장",
-            data=doc_html.encode("utf-8"),
-            file_name="AX역량진단_%s_%s.html" % (person.get("saban", ""),
-                                             person.get("name", "")),
-            mime="text/html",
-            use_container_width=True,
-            key="ax_dl")
-    with c3:
+        st.markdown("<div style='height:2px'></div>", unsafe_allow_html=True)
         if st.button("로그아웃", key="ax_logout", use_container_width=True):
             st.session_state.ax_user = None
             st.rerun()
@@ -738,6 +754,7 @@ def _run_ax_report():
     st.markdown(report_html, unsafe_allow_html=True)
 
     st.markdown("")
-    st.caption("🖨️ [인쇄 / PDF로 저장] 을 누르면 인쇄창이 열립니다. "
-               "**인쇄 대상을 'PDF로 저장'** 으로 바꾸면 PDF 파일로 남길 수 있습니다. "
+    st.caption("🖨️ **[인쇄하기]** 는 바로 인쇄창을 엽니다. "
+               "📄 **[PDF로 저장]** 은 인쇄창에서 **대상을 'PDF로 저장'** 으로 "
+               "고르시면 PDF 파일로 남습니다. "
                "새 창이 뜨지 않으면 브라우저 주소창 오른쪽의 팝업 차단을 풀어 주세요.")
