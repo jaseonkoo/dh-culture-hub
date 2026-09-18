@@ -430,7 +430,8 @@ AX_CSS = """
 .ax-sum { font-size:.82rem; color:#5B6472; line-height:1.6; margin:0 0 12px; }
 .ax-cards { display:flex; gap:9px; margin:0 0 16px; flex-wrap:wrap; }
 .ax-card { flex:1 1 200px; border-radius:10px; padding:11px 13px; }
-.ax-card .t { font-size:.73rem; color:#5B6472; margin:0 0 8px; font-weight:500; }
+.ax-card .t { font-size:.92rem; color:#1B1F24; margin:0 0 9px; font-weight:800;
+  letter-spacing:-.01em; }
 .ax-card .row { display:flex; align-items:center; gap:9px; }
 .ax-badge { min-width:44px; text-align:center; color:#ffffff; font-weight:800;
   font-size:.85rem; padding:7px 9px; border-radius:8px; }
@@ -458,6 +459,18 @@ AX_CSS = """
 @media (max-width: 760px) {
   .ax-r { border-left:0; padding-left:0; border-top:1px solid #E4E7EB; padding-top:10px; }
 }
+/* PDF 파일로 만들 때 : 종이 폭에 맞춰 두 칸·세 칸을 그대로 지킵니다. */
+.ax-pdf .ax-cards { flex-wrap:nowrap !important; }
+.ax-pdf .ax-card { flex:1 1 0 !important; min-width:0 !important; padding:9px 11px !important; }
+.ax-pdf .ax-two { flex-wrap:nowrap !important; gap:12px !important; }
+.ax-pdf .ax-l { flex:1 1 62% !important; min-width:0 !important; }
+.ax-pdf .ax-r { flex:0 0 34% !important; min-width:0 !important; border-top:0 !important;
+  padding-top:0 !important; border-left:1px solid #E4E7EB !important; padding-left:12px !important; }
+.ax-pdf .ax-head { padding:12px 16px !important; }
+.ax-pdf .ax-body { padding:11px 16px 12px !important; }
+.ax-pdf .ax-blk { padding:9px 13px !important; margin-bottom:6px !important; }
+.ax-pdf .ax-li { font-size:.71rem !important; line-height:1.42 !important; margin:2px 0 !important; }
+.ax-pdf .ax-rep, .ax-pdf { border:0 !important; }
 </style>
 """
 
@@ -608,69 +621,151 @@ def build_print_doc(person, report_html):
                AX_CSS, AX_PRINT_CSS, report_html))
 
 
-def _action_buttons_html(doc_html):
+AX_PDF_LIBS = [
+    "https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js",
+]
+
+
+def _action_buttons_html(doc_html, filename):
     """[인쇄하기] · [PDF로 저장] 두 단추.
-       누르면 결과지만 담긴 새 창이 열리고 인쇄 대화상자가 뜹니다.
-       PDF 쪽은 새 창 위에 '대상을 PDF로 저장으로 고르세요' 안내가 함께 나옵니다."""
+       - 인쇄하기 : 결과지만 담긴 새 창을 열고 인쇄 대화상자를 띄웁니다.
+       - PDF로 저장 : 화면에 이미 그려진 결과지를 그대로 PDF 파일로 만들어
+         바로 내려받습니다. (도구를 못 불러오면 인쇄 창으로 넘어갑니다)"""
     payload = json.dumps(doc_html)
+    fname = json.dumps(filename)
+    libs = json.dumps(AX_PDF_LIBS)
     return """
     <html><head><meta charset="utf-8"><style>
       body { margin:0; font-family:'Noto Sans KR','Malgun Gothic',sans-serif; }
       .wrap { display:flex; gap:8px; }
-      .pb { flex:1; padding:11px 8px; font-size:.92rem; font-weight:700;
-            border:0; border-radius:9px; cursor:pointer; color:#fff; }
+      .pb { flex:1; height:40px; padding:0 8px; font-size:.9rem; font-weight:600;
+            border:0; border-radius:8px; cursor:pointer; color:#fff; line-height:1; }
       .p1 { background:#12253F; } .p1:hover { background:#1D3A62; }
       .p2 { background:#C0392B; } .p2:hover { background:#A5321F; }
+      .pb:disabled { opacity:.65; cursor:default; }
     </style></head><body>
       <div class="wrap">
-        <button class="pb p1" onclick="axGo(false)">🖨️ 인쇄하기</button>
-        <button class="pb p2" onclick="axGo(true)">📄 PDF로 저장</button>
+        <button class="pb p1" id="b1" onclick="axPrint()">🖨️ 인쇄하기</button>
+        <button class="pb p2" id="b2" onclick="axPdf()">📄 PDF로 저장</button>
       </div>
       <script>
         const AX_DOC = %s;
-        const AX_GUIDE = "<div style=\'font-family:sans-serif;background:#FFF4E5;"
-            + "border:1px solid #F0C48A;color:#8A4B00;border-radius:8px;"
-            + "padding:10px 13px;margin:9px 9px 0;font-size:13px;line-height:1.6\' "
-            + "class=\'ax-guide\'>📄 <b>PDF로 저장하는 방법</b> &nbsp;&middot;&nbsp; "
-            + "곧 열리는 인쇄창에서 <b>대상(프린터)</b> 을 <b>&lsquo;PDF로 저장&rsquo;</b> "
-            + "으로 바꾼 뒤 <b>[저장]</b> 을 누르세요. "
-            + "(이 안내문은 저장되는 파일에는 나오지 않습니다)</div>"
+        const AX_FILE = %s;
+        const AX_LIBS = %s;
+        const AX_GUIDE = "<div class=\'ax-guide\' style=\'font-family:sans-serif;"
+            + "background:#FFF4E5;border:1px solid #F0C48A;color:#8A4B00;border-radius:8px;"
+            + "padding:10px 13px;margin:9px 9px 0;font-size:13px;line-height:1.6\'>"
+            + "🖨️ <b>인쇄 안내</b> &nbsp;&middot;&nbsp; 인쇄창에서 <b>대상(프린터)</b> 을 "
+            + "<b>&lsquo;PDF로 저장&rsquo;</b> 으로 바꾸면 PDF 파일로도 남길 수 있습니다. "
+            + "(이 안내문은 인쇄되지 않습니다)</div>"
             + "<style>@media print { .ax-guide { display:none !important; } }</style>";
 
-        function axDoc(pdf) {
-            if (!pdf) return AX_DOC;
-            // 본문 맨 앞에 안내문을 끼워 넣습니다.
+        // ---------- 인쇄하기 ----------
+        function axOpen(extra) {
             const k = AX_DOC.indexOf("<body>");
-            if (k < 0) return AX_DOC;
-            return AX_DOC.slice(0, k + 6) + AX_GUIDE + AX_DOC.slice(k + 6);
-        }
-
-        function axGo(pdf) {
-            const html = axDoc(pdf);
-            try {
-                const w = window.open('', '_blank');
-                if (w && w.document) {
-                    w.document.open();
-                    w.document.write(html);
-                    w.document.close();
-                    w.focus();
-                    setTimeout(function () { try { w.print(); } catch (e) {} }, 700);
-                    return;
-                }
-            } catch (e) {}
-            // 새 창이 막혔을 때 : 이 자리에 결과지를 펼쳐서 인쇄합니다.
-            try {
-                document.open();
-                document.write(html);
-                document.close();
-                setTimeout(function () { window.print(); }, 700);
+            const html = (extra && k >= 0)
+                ? AX_DOC.slice(0, k + 6) + extra + AX_DOC.slice(k + 6) : AX_DOC;
+            let w = null;
+            try { w = window.open('', '_blank'); } catch (e) {}
+            if (w && w.document) {
+                w.document.open(); w.document.write(html); w.document.close(); w.focus();
+                return w;
+            }
+            try {                      // 새 창이 막혔을 때 : 이 자리에 펼칩니다.
+                document.open(); document.write(html); document.close();
+                return window;
             } catch (e) {
                 alert('브라우저가 새 창을 막았습니다. 주소창 오른쪽의 팝업 차단을 풀어 주세요.');
+                return null;
             }
+        }
+
+        function axPrint() {
+            const w = axOpen(AX_GUIDE);
+            if (w) setTimeout(function () { try { w.print(); } catch (e) {} }, 700);
+        }
+
+        // ---------- PDF로 저장 ----------
+        function axBtn(text, off) {
+            const b = document.getElementById('b2');
+            if (b) { b.innerText = text; b.disabled = !!off; }
+        }
+
+        function axPdfFallback() {
+            axBtn('📄 PDF로 저장', false);
+            const w = axOpen(AX_GUIDE);
+            if (w) setTimeout(function () { try { w.print(); } catch (e) {} }, 700);
+        }
+
+        function axLoadLib(P, i, ok, bad) {
+            if (i >= AX_LIBS.length) { bad(); return; }
+            try {
+                const sc = P.document.createElement('script');
+                sc.src = AX_LIBS[i];
+                sc.onload = function () { ok(); };
+                sc.onerror = function () { axLoadLib(P, i + 1, ok, bad); };
+                P.document.head.appendChild(sc);
+            } catch (e) { bad(); }
+        }
+
+        function axPdf() {
+            let P;
+            try { P = window.parent; if (!P.document) throw 0; } catch (e) {
+                axPdfFallback(); return;
+            }
+            const src = P.document.querySelector('.ax-rep');
+            if (!src) { axPdfFallback(); return; }
+
+            axBtn('📄 PDF 만드는 중...', true);
+            let done = false;
+            const fail = function () { if (done) return; done = true; axPdfFallback(); };
+            setTimeout(fail, 30000);          // 30초 안에 안 되면 인쇄창으로
+
+            const make = function () {
+                if (done) return;
+                let box = null;
+                try {
+                    // 화면에 보이지 않는 자리에 결과지를 복사해 두고 그걸로 만듭니다.
+                    box = P.document.createElement('div');
+                    box.style.cssText = 'position:fixed;left:-10000px;top:0;'
+                        + 'width:780px;background:#ffffff;z-index:-1;';
+                    const clone = src.cloneNode(true);
+                    clone.classList.add('ax-pdf');
+                    box.appendChild(clone);
+                    P.document.body.appendChild(box);
+
+                    // ⚠️ 설정값은 '바깥 화면 쪽'에서 만들어야 합니다.
+                    //    (틀 안에서 만든 목록은 바깥 도구가 못 알아봅니다)
+                    const opt = P.JSON.parse(JSON.stringify({
+                        margin: [7, 7, 7, 7],
+                        filename: AX_FILE,
+                        image: { type: 'jpeg', quality: 0.98 },
+                        html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                        pagebreak: { mode: ['css', 'legacy'] }
+                    }));
+                    P.html2pdf().set(opt).from(clone).save().then(function () {
+                        done = true;
+                        if (box) box.remove();
+                        axBtn('✅ 저장했습니다', false);
+                        setTimeout(function () { axBtn('📄 PDF로 저장', false); }, 2500);
+                    }).catch(function () {
+                        if (box) box.remove();
+                        fail();
+                    });
+                } catch (e) {
+                    if (box) box.remove();
+                    fail();
+                }
+            };
+
+            if (P.html2pdf) { make(); }
+            else { axLoadLib(P, 0, make, fail); }
         }
       </script>
     </body></html>
-    """ % payload
+    """ % (payload, fname, libs)
 
 
 # ==========================================================
@@ -742,11 +837,12 @@ def _run_ax_report():
     report_html = build_report_html(person)
     doc_html = build_print_doc(person, report_html)
 
+    pdf_name = "AX역량진단_%s_%s.pdf" % (person.get("saban", ""),
+                                        person.get("name", ""))
     c1, c2 = st.columns([2.6, 1])
     with c1:
-        components.html(_action_buttons_html(doc_html), height=56)
+        components.html(_action_buttons_html(doc_html, pdf_name), height=42)
     with c2:
-        st.markdown("<div style='height:2px'></div>", unsafe_allow_html=True)
         if st.button("로그아웃", key="ax_logout", use_container_width=True):
             st.session_state.ax_user = None
             st.rerun()
@@ -754,7 +850,6 @@ def _run_ax_report():
     st.markdown(report_html, unsafe_allow_html=True)
 
     st.markdown("")
-    st.caption("🖨️ **[인쇄하기]** 는 바로 인쇄창을 엽니다. "
-               "📄 **[PDF로 저장]** 은 인쇄창에서 **대상을 'PDF로 저장'** 으로 "
-               "고르시면 PDF 파일로 남습니다. "
-               "새 창이 뜨지 않으면 브라우저 주소창 오른쪽의 팝업 차단을 풀어 주세요.")
+    st.caption("🖨️ **[인쇄하기]** 를 누르면 결과지만 담긴 새 창과 인쇄창이 열립니다. "
+               "📄 **[PDF로 저장]** 을 누르면 **PDF 파일이 바로 내려받기 폴더에 저장됩니다.** "
+               "(만드는 데 3~10초쯤 걸립니다)")
