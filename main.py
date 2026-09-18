@@ -50,9 +50,10 @@ SCOPE = ["https://spreadsheets.google.com/feeds",
 STAT_DB = "대한사료_통합통계_DB"
 STAT_TAB = "접속통계"
 STAT_HEADERS = ["날짜", "메인", "멘토링", "리더대화", "원데이클래스", "타자연습", "타이쿤", "도서관",
-                "114챌린지", "교육이수"]
+                "114챌린지", "교육이수", "AX리포트"]
 COL_MAP = {"home": 2, "mentoring": 3, "leader": 4, "class": 5,
-           "typing": 6, "tycoon": 7, "library": 8, "p114": 9, "edu": 10}
+           "typing": 6, "tycoon": 7, "library": 8, "p114": 9, "edu": 10,
+           "axreport": 11}
 
 
 @st.cache_resource(show_spinner=False)
@@ -284,6 +285,9 @@ PLATFORM_MENU = [
          "desc": "내 연간 교육 이수 내역과 교육비를 조회합니다"},
         {"page": "class", "ico": "🎓", "title": "직무 원데이 클래스",
          "desc": "동료의 직무 노하우를 배우는 사내 강의"},
+        {"page": "axreport", "ico": "📄", "title": "AX 역량진단 결과 리포트",
+         "desc": "나의 AX 역량 수준과 추천 학습을 확인합니다",
+         "new": True, "gate": "dhfeedhr"},
     ]),
     ("Gamification", "즐기며 익히기", "c", [
         {"page": "p114", "ico": "⌨️", "title": "114 프로젝트 타자왕 챌린지",
@@ -360,35 +364,38 @@ with holder.container():
                 f"<span class='pf-gko'>{ko}</span><span class='pf-gline'></span></div>",
                 unsafe_allow_html=True)
 
-            cols = st.columns(PLATFORM_COLS)
-            for i, card in enumerate(cards[:PLATFORM_COLS]):
-                pg = card["page"]
-                with cols[i]:
-                    draw_card(card, accent)
+            # 카드가 한 줄(3개)을 넘으면 다음 줄에 이어서 놓습니다.
+            for start in range(0, len(cards), PLATFORM_COLS):
+                line = cards[start:start + PLATFORM_COLS]
+                cols = st.columns(PLATFORM_COLS)
+                for i, card in enumerate(line):
+                    pg = card["page"]
+                    with cols[i]:
+                        draw_card(card, accent)
 
-                    if card.get("gate"):
-                        # 비밀번호가 필요한 프로그램입니다.
-                        # st.form 상자 안에 넣으면 '엔터'만 쳐도 입장합니다.
-                        with st.form("gate_%s" % pg, clear_on_submit=False):
-                            c_pw, c_btn = st.columns([2, 1])
-                            typed_pw = c_pw.text_input("비밀번호", type="password",
-                                                       key="pw_%s" % pg,
-                                                       label_visibility="collapsed",
-                                                       placeholder="비밀번호 입력")
-                            go_in = c_btn.form_submit_button("입장하기", use_container_width=True)
-                        # 판정은 폼 밖에서 합니다. (폼 안에서는 화면 이동을 하면 안 됩니다)
-                        if go_in:
-                            if typed_pw == card["gate"]:
-                                go_to(pg)
-                            elif typed_pw == "":
-                                st.warning("비밀번호를 입력해 주세요.")
-                            else:
-                                st.error("비밀번호가 일치하지 않습니다.")
-                    else:
-                        with nav_box("nav_%s_%s" % (accent, pg)):
-                            if st.button("입장하기", key="btn_%s" % pg,
-                                         use_container_width=True):
-                                go_to(pg)
+                        if card.get("gate"):
+                            # 비밀번호가 필요한 프로그램입니다.
+                            # st.form 상자 안에 넣으면 '엔터'만 쳐도 입장합니다.
+                            with st.form("gate_%s" % pg, clear_on_submit=False):
+                                c_pw, c_btn = st.columns([2, 1])
+                                typed_pw = c_pw.text_input("비밀번호", type="password",
+                                                           key="pw_%s" % pg,
+                                                           label_visibility="collapsed",
+                                                           placeholder="비밀번호 입력")
+                                go_in = c_btn.form_submit_button("입장하기", use_container_width=True)
+                            # 판정은 폼 밖에서 합니다. (폼 안에서는 화면 이동을 하면 안 됩니다)
+                            if go_in:
+                                if typed_pw == card["gate"]:
+                                    go_to(pg)
+                                elif typed_pw == "":
+                                    st.warning("비밀번호를 입력해 주세요.")
+                                else:
+                                    st.error("비밀번호가 일치하지 않습니다.")
+                        else:
+                            with nav_box("nav_%s_%s" % (accent, pg)):
+                                if st.button("입장하기", key="btn_%s" % pg,
+                                             use_container_width=True):
+                                    go_to(pg)
 
         st.markdown(
             f"<div class='pf-foot'>📊 현재 누적 접속 횟수 : {get_total_visitors()}회</div>",
@@ -422,6 +429,10 @@ with holder.container():
     elif page == "edu":
         back_button()
         load_module("edu").run_edu()
+
+    elif page == "axreport":
+        back_button()
+        load_module("axreport").run_ax_report()
 
     elif page == "library":
         # 도서관 안에도 '돌아가기' 버튼이 있어서, 이 버튼은 '플랫폼 메인으로
