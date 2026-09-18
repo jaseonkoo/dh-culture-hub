@@ -72,15 +72,27 @@ def get_stat_ws():
     try:
         ws = doc.worksheet(STAT_TAB)
     except gspread.exceptions.WorksheetNotFound:
-        ws = doc.add_worksheet(STAT_TAB, 1000, 10)
+        ws = doc.add_worksheet(STAT_TAB, 1000, len(STAT_HEADERS) + 5)
         ws.append_row(STAT_HEADERS)
         return ws
-    # 예전 시트에는 '타이쿤', '도서관' 열이 없습니다. 없으면 만들어 줍니다.
+
+    # ⚠️ 시트의 '칸 수'가 모자라면 새 프로그램 칸에 아무것도 못 씁니다.
+    #    (예전 시트는 10칸까지만 있어서 11번째인 AX리포트가 기록되지 않았습니다)
+    #    그래서 먼저 칸부터 늘려 줍니다.
+    try:
+        have = int(getattr(ws, "col_count", 0) or 0)
+        if have and have < len(STAT_HEADERS):
+            ws.add_cols(len(STAT_HEADERS) - have)
+    except Exception:
+        pass
+
+    # 예전 시트에는 새로 생긴 열 이름이 없습니다. 없으면 만들어 줍니다.
     try:
         hdr = ws.row_values(1)
         if len(hdr) < len(STAT_HEADERS):
             for i in range(len(hdr), len(STAT_HEADERS)):
-                ws.update_cell(1, i + 1, STAT_HEADERS[i])
+                if str(STAT_HEADERS[i]).strip():
+                    ws.update_cell(1, i + 1, STAT_HEADERS[i])
     except Exception:
         pass
     return ws
