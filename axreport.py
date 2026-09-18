@@ -471,6 +471,12 @@ AX_CSS = """
 .ax-pdf .ax-blk { padding:9px 13px !important; margin-bottom:6px !important; }
 .ax-pdf .ax-li { font-size:.71rem !important; line-height:1.42 !important; margin:2px 0 !important; }
 .ax-pdf .ax-rep, .ax-pdf { border:0 !important; }
+/* 페이지가 넘어갈 때 글줄이 반으로 잘리지 않게 합니다. */
+.ax-pdf .ax-li, .ax-pdf .ax-none, .ax-pdf .ax-card, .ax-pdf .ax-cards,
+.ax-pdf .ax-tag, .ax-pdf .ax-aname, .ax-pdf .ax-lv, .ax-pdf .ax-lvd,
+.ax-pdf .ax-lb, .ax-pdf .ax-h2, .ax-pdf .ax-h3, .ax-pdf .ax-sum,
+.ax-pdf .ax-note, .ax-pdf .ax-head, .ax-pdf .ax-foot {
+  break-inside: avoid !important; page-break-inside: avoid !important; }
 </style>
 """
 
@@ -743,7 +749,14 @@ def _action_buttons_html(doc_html, filename):
                         image: { type: 'jpeg', quality: 0.98 },
                         html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true },
                         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                        pagebreak: { mode: ['css', 'legacy'] }
+                        // 👇 글줄이 페이지 경계에서 반으로 잘리지 않게 합니다.
+                        pagebreak: {
+                            mode: ['css', 'legacy'],
+                            avoid: ['.ax-li', '.ax-none', '.ax-card', '.ax-cards',
+                                    '.ax-tag', '.ax-aname', '.ax-lv', '.ax-lvd',
+                                    '.ax-lb', '.ax-h2', '.ax-h3', '.ax-sum',
+                                    '.ax-note', '.ax-head', '.ax-foot']
+                        }
                     }));
                     P.html2pdf().set(opt).from(clone).save().then(function () {
                         done = true;
