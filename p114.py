@@ -1133,4 +1133,4 @@ def _rank_tab():
             st.markdown("<br>", unsafe_allow_html=True)
             st.caption("※ 한 사람이 여러 번 도전한 경우 **가장 빠른 기록**만 순위에 반영됩니다.")
             if not public:
-                st.caption("🔒 기록(초)은 마지막 날 공개됩니다. 순위는 실시간으로 반영되고 있습니다.")
+                st.caption("")
