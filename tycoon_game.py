@@ -28,9 +28,16 @@ def run_tycoon_game():
             border-radius: 8px; padding: 0 16px; color: #1B5E20; font-weight: 600;
             font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         /* 버튼 높이를 로그인 바와 동일하게 (Streamlit 버전과 무관하게 적용되는 선택자) */
-        div[data-testid="stButton"] button {
+        div[data-testid="stButton"] button,
+        div[data-testid="stDownloadButton"] button {
             height: 44px; min-height: 44px; box-sizing: border-box; margin: 0;
             display: inline-flex; align-items: center; justify-content: center; }
+
+        /* 의견(베타 피드백) 안내 카드 */
+        .fb-hero { border: 2px dashed #A5D6A7; border-radius: 14px; background: #F9FFF9;
+            padding: 16px 20px; margin: 16px 0 12px; }
+        .fb-hero h4 { margin: 0 0 4px; color: #3F7D34; font-size: 1.05em; }
+        .fb-hero p { margin: 0; color: #64748b; font-size: 0.9em; }
         /* 마크다운 컨테이너의 음수 여백(-16px) 때문에 바의 레이아웃 높이가 줄어드는 것을 방지 */
         div[data-testid="stMarkdownContainer"]:has(.login-bar) { margin: 0 !important; padding: 0 !important; }
 
@@ -47,6 +54,12 @@ def run_tycoon_game():
 
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
+
+    # 관리자 비밀번호 — secrets.toml 에 tycoon_admin_password = "..." 를 넣으면 그 값이 우선 적용됩니다.
+    try:
+        ADMIN_PW = st.secrets.get("tycoon_admin_password", "dhfeed1947")
+    except Exception:
+        ADMIN_PW = "dhfeed1947"
 
     # =========================================================
     #  구글시트 연결 (서비스 계정 1개로 여러 파일을 함께 사용)
@@ -117,6 +130,45 @@ def run_tycoon_game():
         except Exception:
             return False
 
+    # ---------- 참여자 의견(베타 피드백) ----------
+    FEEDBACK_HEADER = ["사번", "이름", "소속팀", "만족도", "소감", "개선점", "작성일"]
+
+    def _feedback_ws():
+        """feedback 시트를 가져오고, 없으면 머리글과 함께 자동으로 만듭니다."""
+        doc = open_tycoon_db()
+        try:
+            return doc.worksheet("feedback")
+        except Exception:
+            ws = doc.add_worksheet(title="feedback", rows=2000, cols=len(FEEDBACK_HEADER))
+            ws.append_row(FEEDBACK_HEADER)
+            return ws
+
+    @st.cache_data(ttl=5, show_spinner=False)
+    def get_feedback():
+        try:
+            return _feedback_ws().get_all_records()
+        except Exception:
+            return []
+
+    def save_feedback(saban, name, team, rating, impression, improvement):
+        try:
+            ws = _feedback_ws()
+            kst = datetime.timezone(datetime.timedelta(hours=9))
+            now_str = datetime.datetime.now(kst).strftime("%Y-%m-%d %H:%M")
+            ws.append_row([str(saban), name, team, int(rating),
+                           impression.strip(), improvement.strip(), now_str])
+            get_feedback.clear()
+            return True
+        except Exception:
+            return False
+
+    def stars(v):
+        try:
+            n = max(1, min(5, int(str(v).strip())))
+            return "⭐" * n
+        except Exception:
+            return "-"
+
     # =========================================================
     #  1) 로그인 게이트 — 로그인 전에는 게임을 보여주지 않음
     # =========================================================
@@ -163,12 +215,13 @@ def run_tycoon_game():
         )
     with col_out:
         if st.button("로그아웃", key="tycoon_logout", use_container_width=True):
-            for k in ["member", "hidden_tycoon_data", "tycoon_score_saved"]:
+            for k in ["member", "hidden_tycoon_data", "tycoon_score_saved",
+                      "tycoon_feedback_saved", "tycoon_admin_ok"]:
                 if k in st.session_state:
                     del st.session_state[k]
             st.rerun()
 
-    tab1, tab2 = st.tabs(["🎮 게임 플레이", "🏆 실시간 명예의 전당"])
+    tab1, tab2, tab3 = st.tabs(["🎮 게임 플레이", "🏆 실시간 명예의 전당", "🔒 관리자"])
 
     with tab1:
         # 원본 HTML을 통째로 불러온 뒤, 로그인한 사람의 이름·팀을 게임에 자동 주입합니다.
@@ -221,8 +274,46 @@ def run_tycoon_game():
 
         if 'tycoon_score_saved' in st.session_state:
             st.success("✅ 실적이 성공적으로 명예의 전당에 등록되었습니다! [실시간 명예의 전당] 탭을 확인해보세요.")
+
+            # ---------- 게임 종료 후 의견 남기기 ----------
+            if 'tycoon_feedback_saved' not in st.session_state:
+                st.markdown("""
+                    <div class="fb-hero">
+                        <h4>💬 베타 테스트 의견을 들려주세요</h4>
+                        <p>남겨주신 의견은 관리자만 열람하며, 게임 개선에만 활용됩니다.</p>
+                    </div>
+                """, unsafe_allow_html=True)
+
+                with st.form("tycoon_feedback_form"):
+                    rating = st.radio("만족도", [1, 2, 3, 4, 5], index=3, horizontal=True,
+                                      format_func=lambda x: "⭐" * x)
+                    impression = st.text_area(
+                        "소감",
+                        placeholder="게임을 해보니 어떠셨나요? (재미, 난이도, 사료 밸류체인 이해에 도움이 되었는지 등)",
+                        height=110)
+                    improvement = st.text_area(
+                        "개선점",
+                        placeholder="불편했던 점이나 추가되면 좋을 기능을 자유롭게 적어주세요.",
+                        height=110)
+                    fb_submitted = st.form_submit_button("의견 제출", use_container_width=True)
+
+                if fb_submitted:
+                    if not impression.strip() and not improvement.strip():
+                        st.warning("소감과 개선점 중 최소 한 가지는 입력해 주세요.")
+                    else:
+                        with st.spinner("의견을 저장하는 중입니다..."):
+                            saved = save_feedback(member.get("saban"), member.get("name"),
+                                                  member.get("team"), rating, impression, improvement)
+                        if saved:
+                            st.session_state.tycoon_feedback_saved = True
+                            st.rerun()
+                        else:
+                            st.error("의견 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.")
+            else:
+                st.info("💬 소중한 의견 감사합니다! 베타 개선에 반영하겠습니다.")
+
             if st.button("🔄 게임 초기화 (다시 하기)"):
-                for k in ['hidden_tycoon_data', 'tycoon_score_saved']:
+                for k in ['hidden_tycoon_data', 'tycoon_score_saved', 'tycoon_feedback_saved']:
                     if k in st.session_state:
                         del st.session_state[k]
                 st.rerun()
@@ -278,3 +369,85 @@ def run_tycoon_game():
                     {'selector': 'th', 'props': [('text-align', 'center'), ('background-color', '#f8f9fa')]}
                 ])
                 st.dataframe(styled_df, use_container_width=True)
+
+    # =========================================================
+    #  관리자 전용 — 참여자 의견 열람 (비밀번호 필요)
+    # =========================================================
+    with tab3:
+        st.subheader("🔒 관리자 — 참여자 의견")
+
+        if not st.session_state.get("tycoon_admin_ok", False):
+            st.caption("참여자가 남긴 의견은 관리자만 열람할 수 있습니다.")
+            with st.form("tycoon_admin_form"):
+                admin_pw = st.text_input("관리자 비밀번호", type="password")
+                pw_submitted = st.form_submit_button("확인", use_container_width=True)
+            if pw_submitted:
+                if admin_pw == ADMIN_PW:
+                    st.session_state.tycoon_admin_ok = True
+                    st.rerun()
+                else:
+                    st.error("비밀번호가 올바르지 않습니다.")
+        else:
+            try:
+                col_ad, col_lock = st.columns([5, 1], vertical_alignment="center")
+            except TypeError:
+                col_ad, col_lock = st.columns([5, 1])
+            with col_ad:
+                st.markdown(
+                    '<div class="login-bar"><span>🔓</span>'
+                    '<span>관리자 모드 — 열람한 내용은 외부에 공유하지 마세요.</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with col_lock:
+                if st.button("잠그기", key="tycoon_admin_lock", use_container_width=True):
+                    st.session_state.tycoon_admin_ok = False
+                    st.rerun()
+
+            if st.button("🔄 의견 새로고침", key="tycoon_fb_refresh"):
+                get_feedback.clear()
+                st.rerun()
+
+            fb_data = get_feedback()
+
+            if not fb_data:
+                st.info("아직 등록된 의견이 없습니다. 참여자가 게임을 마치고 의견을 남기면 이곳에 표시됩니다.")
+            else:
+                rating_vals = []
+                for r in fb_data:
+                    try:
+                        rating_vals.append(int(str(r.get("만족도", "")).strip()))
+                    except Exception:
+                        pass
+
+                m1, m2 = st.columns(2)
+                m1.metric("총 응답 수", f"{len(fb_data)}건")
+                m2.metric("평균 만족도",
+                          f"{sum(rating_vals) / len(rating_vals):.2f} / 5" if rating_vals else "-")
+
+                st.markdown("##### 📝 개별 의견 (최신순)")
+                for idx, r in enumerate(reversed(fb_data), start=1):
+                    title = (f"{idx}. {r.get('이름', '-')} ({r.get('소속팀', '-')}) · "
+                             f"{stars(r.get('만족도'))} · {r.get('작성일', '')}")
+                    with st.expander(title):
+                        st.markdown(f"**소감**\n\n{r.get('소감', '') or '_(작성 없음)_'}")
+                        st.markdown(f"**개선점**\n\n{r.get('개선점', '') or '_(작성 없음)_'}")
+                        st.caption(f"사번 {r.get('사번', '-')}")
+
+                df_fb = pd.DataFrame(fb_data)
+                for col in FEEDBACK_HEADER:
+                    if col not in df_fb.columns:
+                        df_fb[col] = ""
+                df_fb = df_fb[FEEDBACK_HEADER].iloc[::-1].reset_index(drop=True)
+                df_fb.index = range(1, len(df_fb) + 1)
+                df_fb.index.name = "No."
+
+                with st.expander("📋 표로 한눈에 보기"):
+                    st.dataframe(df_fb, use_container_width=True)
+
+                st.download_button(
+                    "⬇️ 의견 전체 CSV 내려받기",
+                    data=df_fb.to_csv(index=False).encode("utf-8-sig"),
+                    file_name=f"타이쿤_참여자의견_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    key="tycoon_fb_csv",
+                )
