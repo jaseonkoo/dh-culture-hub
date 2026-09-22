@@ -21,12 +21,18 @@ def run_tycoon_game():
         .login-hero h3 { margin: 0 0 4px; color: #3F7D34; }
         .login-hero p { margin: 0; color: #64748b; font-size: 0.92em; }
 
-        /* 로그인 상태 바 — 로그아웃 버튼과 높이·수직 정렬을 맞춤 */
-        .login-bar { display: flex; align-items: center; gap: 8px; height: 42px; margin: 0;
+        /* 로그인 상태 바 — 로그아웃 버튼과 높이·수직 정렬을 정확히 일치시킴 */
+        .login-bar { display: flex; align-items: center; gap: 8px;
+            height: 44px; min-height: 44px; box-sizing: border-box; margin: 0;
             background: #E8F5E9; border: 1px solid #A5D6A7; border-left: 5px solid #4CAF50;
             border-radius: 8px; padding: 0 16px; color: #1B5E20; font-weight: 600;
             font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .st-key-tycoon_logout button { height: 42px; }
+        /* 버튼 높이를 로그인 바와 동일하게 (Streamlit 버전과 무관하게 적용되는 선택자) */
+        div[data-testid="stButton"] button {
+            height: 44px; min-height: 44px; box-sizing: border-box; margin: 0;
+            display: inline-flex; align-items: center; justify-content: center; }
+        /* 마크다운 컨테이너의 음수 여백(-16px) 때문에 바의 레이아웃 높이가 줄어드는 것을 방지 */
+        div[data-testid="stMarkdownContainer"]:has(.login-bar) { margin: 0 !important; padding: 0 !important; }
 
         /* 스트림릿과 통신하기 위한 숨겨진 입력창 */
         div[data-testid="stTextInput"]:has(input[aria-label="hidden_tycoon_data"]) {
@@ -151,8 +157,8 @@ def run_tycoon_game():
     with col_hi:
         pos = f" · {member['position']}" if member.get("position") else ""
         st.markdown(
-            f'<div class="login-bar">👤&nbsp;<b>{member["name"]}</b>님 '
-            f'({member["team"]}{pos}) 로그인됨</div>',
+            f'<div class="login-bar"><span>👤</span>'
+            f'<span><b>{member["name"]}</b>님 ({member["team"]}{pos}) 로그인됨</span></div>',
             unsafe_allow_html=True,
         )
     with col_out:
