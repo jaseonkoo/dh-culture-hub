@@ -282,6 +282,7 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 #   new   : True 면 'NEW' 딱지
 #   soon  : True 면 'Coming Soon' 딱지
 #   gate  : 비밀번호를 적으면 그 비밀번호를 넣어야 들어갈 수 있습니다.
+#           (타이쿤은 사번·이름 로그인이 따로 있어 입장 암호를 없앴습니다)
 # 묶음 : (영문 이름, 우리말 설명, 색깔표시, 카드들)
 PLATFORM_MENU = [
     ("Community", "함께 성장하기", "a", [
@@ -309,7 +310,7 @@ PLATFORM_MENU = [
          "desc": "핵심가치를 타이핑하며 익혀 봅니다"},
         {"page": "tycoon", "ico": "🌾", "title": "밸류체인 타이쿤",
          "desc": "사료 밸류체인을 직접 경영해 보는 게임",
-         "beta": True, "gate": "dhfeedhr"},
+         "beta": True},
     ]),
 ]
 
