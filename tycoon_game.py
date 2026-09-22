@@ -27,11 +27,17 @@ def run_tycoon_game():
             background: #E8F5E9; border: 1px solid #A5D6A7; border-left: 5px solid #4CAF50;
             border-radius: 8px; padding: 0 16px; color: #1B5E20; font-weight: 600;
             font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        /* 버튼 높이를 로그인 바와 동일하게 (Streamlit 버전과 무관하게 적용되는 선택자) */
+        /* 버튼·입력칸 높이를 44px 로 통일 (Streamlit 버전과 무관하게 적용되는 선택자) */
         div[data-testid="stButton"] button,
-        div[data-testid="stDownloadButton"] button {
+        div[data-testid="stDownloadButton"] button,
+        div[data-testid="stFormSubmitButton"] button {
             height: 44px; min-height: 44px; box-sizing: border-box; margin: 0;
             display: inline-flex; align-items: center; justify-content: center; }
+        /* 입력칸은 '테두리가 그려지는 래퍼'의 높이를 맞춰야 버튼과 정확히 같아집니다 */
+        div[data-testid="stTextInput"] div:has(> input) {
+            height: 44px; min-height: 44px; box-sizing: border-box; }
+        div[data-testid="stTextInput"] input {
+            height: 100%; box-sizing: border-box; }
 
         /* 의견(베타 피드백) 안내 카드 */
         .fb-hero { border: 2px dashed #A5D6A7; border-radius: 14px; background: #F9FFF9;
@@ -176,14 +182,25 @@ def run_tycoon_game():
         st.markdown("""
             <div class="login-hero">
                 <h3>🔐 로그인</h3>
-                <p>사번과 이름을 입력해 주세요. (인사 등록 정보와 일치해야 입장할 수 있습니다.)</p>
+                <p>사번과 이름을 입력해 주세요. 회사 명단과 대조합니다.</p>
             </div>
         """, unsafe_allow_html=True)
 
         with st.form("tycoon_login_form", clear_on_submit=False):
-            in_saban = st.text_input("사번", placeholder="예: 119204001")
-            in_name = st.text_input("이름", placeholder="예: 홍길동")
-            submitted = st.form_submit_button("로그인", use_container_width=True)
+            # 사번 · 이름 · 로그인 버튼을 같은 너비(1:1:1)로 한 줄에 배치
+            try:
+                c_saban, c_name, c_btn = st.columns(3, vertical_alignment="center")
+            except TypeError:
+                c_saban, c_name, c_btn = st.columns(3)
+            with c_saban:
+                in_saban = st.text_input("사번", placeholder="사번 입력",
+                                         label_visibility="collapsed")
+            with c_name:
+                in_name = st.text_input("이름", placeholder="이름 입력",
+                                        label_visibility="collapsed")
+            with c_btn:
+                submitted = st.form_submit_button("로그인", use_container_width=True,
+                                                  type="primary")
 
         if submitted:
             member = verify_login(in_saban, in_name)
