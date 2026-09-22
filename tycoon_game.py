@@ -182,7 +182,7 @@ def run_tycoon_game():
         st.markdown("""
             <div class="login-hero">
                 <h3>🔐 로그인</h3>
-                <p>사번과 이름을 입력해 주세요. 회사 명단과 대조합니다.</p>
+                <p>사번과 이름을 입력해 주세요. </p>
             </div>
         """, unsafe_allow_html=True)
 
