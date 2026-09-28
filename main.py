@@ -282,7 +282,8 @@ html, body, .stApp, [data-testid="stAppViewContainer"] {
 #   new   : True 면 'NEW' 딱지
 #   soon  : True 면 'Coming Soon' 딱지
 #   gate  : 비밀번호를 적으면 그 비밀번호를 넣어야 들어갈 수 있습니다.
-#           (타이쿤은 사번·이름 로그인이 따로 있어 입장 암호를 없앴습니다)
+#           👉 지금은 모든 프로그램이 암호 없이 바로 들어갑니다.
+#              나중에 다시 잠그고 싶으면 그 카드에 "gate": "암호" 한 줄만 넣으세요.
 # 묶음 : (영문 이름, 우리말 설명, 색깔표시, 카드들)
 PLATFORM_MENU = [
     ("Community", "함께 성장하기", "a", [
@@ -300,7 +301,7 @@ PLATFORM_MENU = [
          "desc": "동료의 직무 노하우를 배우는 사내 강의"},
         {"page": "axreport", "ico": "📄", "title": "AX 역량진단 결과 리포트",
          "desc": "나의 AX 역량 수준과 추천 학습을 확인합니다",
-         "new": True, "gate": "dhfeedhr"},
+         "new": True},
     ]),
     ("Gamification", "즐기며 익히기", "c", [
         {"page": "p114", "ico": "⌨️", "title": "114 프로젝트 타자왕 챌린지",
