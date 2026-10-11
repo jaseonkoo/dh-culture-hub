@@ -1274,6 +1274,38 @@ def _esc(x):
 
 _ST_CLASS = {"대출가능": "ok", "대출중": "no", "예약중": "wait", "폐기": "off"}
 
+def _show_table(data, columns=None):
+    """표를 안전하게 그려 줍니다.
+
+       ⚠️ 왜 필요한가요?
+       구글 시트에서 읽어 온 값 중에 ISBN 처럼 '아주 긴 숫자'가 들어 있으면,
+       스트림릿이 표로 바꾸는 과정에서 숫자가 너무 커서 오류(OverflowError)를
+       내고 화면 전체가 멈춰 버립니다. (바코드를 두 번 찍어 숫자가 두 배로
+       길어진 경우 등)
+       그래서 표에 넣기 전에 모든 칸을 '글자'로 바꿔 둡니다.
+       보이는 모습은 똑같고, 더 이상 오류가 나지 않습니다."""
+    try:
+        df = pd.DataFrame(data, columns=columns) if columns is not None \
+            else pd.DataFrame(data)
+    except Exception:
+        st.info("표를 만들 수 없습니다.")
+        return
+    try:
+        df = df.where(pd.notna(df), "")      # 빈 칸은 빈 칸 그대로
+        df = df.astype(str)
+        df = df.replace({"None": "", "nan": "", "NaN": "", "NaT": "", "<NA>": ""})
+    except Exception:
+        pass
+    try:
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    except Exception:
+        # 그래도 안 되면 가장 단순한 표로 보여 줍니다.
+        try:
+            st.table(df)
+        except Exception:
+            st.info("표를 보여 줄 수 없습니다.")
+
+
 def _clean_author(raw):
     """'지은이: 고현숙,김병헌,...' 처럼 지저분한 저자 값을 보기 좋게 정리한다.
        - 앞에 붙은 '지은이:' '저자:' 같은 말머리를 떼고
@@ -2369,9 +2401,8 @@ def _run_library():
                     if plan:
                         st.info(f"예전 도서 {plan['old_book_rows']}줄 → **{len(plan['books'])}종**으로 묶입니다. "
                                 f"대출 기록 {len(plan['loans'])}건이 함께 옮겨집니다.")
-                        st.dataframe(pd.DataFrame(plan["books"], columns=HEADERS["books"])
-                                     [["isbn", "title", "total_qty", "available_qty", "status"]],
-                                     use_container_width=True, hide_index=True)
+                        _show_table(pd.DataFrame(plan["books"], columns=HEADERS["books"])
+                                    [["isbn", "title", "total_qty", "available_qty", "status"]])
                         if plan["no_isbn"]:
                             st.warning("ISBN이 비어 있는 도서는 자산번호를 임시 열쇠로 사용합니다. "
                                        "변환 후 관리자 탭에서 ISBN을 채워 주세요: "
@@ -2396,12 +2427,34 @@ def _run_library():
                         st.success("모든 도서의 수량이 정상입니다.")
                     else:
                         st.warning(f"{len(res)}종의 수량이 맞지 않습니다.")
-                        st.dataframe(pd.DataFrame(res).drop(columns=["row"]),
-                                     use_container_width=True, hide_index=True)
+                        _show_table(pd.DataFrame(res).drop(columns=["row"]))
                         if st.button("✅ 올바른 값으로 자동 수정", key="lib_audit_fix"):
                             n = _fix_stock(res)
                             st.session_state["lib_audit_result"] = None
                             st.success(f"{n}종을 수정했습니다."); st.rerun()
+
+            with st.expander("🔎 ISBN이 이상한 책 찾기  (표가 깨질 때 여기부터)"):
+                st.caption("ISBN은 보통 **숫자 10자리 또는 13자리**입니다. "
+                           "바코드를 두 번 찍어 숫자가 두 배로 길어졌거나 글자·기호가 "
+                           "섞이면 표가 깨지거나 대출이 안 될 수 있습니다.")
+                _bad_isbn = []
+                for _b in _records("books"):
+                    _raw = str(_b.get("isbn", "") or "").strip()
+                    if not _raw:
+                        continue
+                    _dig = "".join(ch for ch in _raw if ch.isdigit())
+                    if len(_dig) not in (10, 13) or _dig != _raw:
+                        _bad_isbn.append({"지금 적힌 값": _raw,
+                                          "숫자만": _dig,
+                                          "자릿수": len(_dig),
+                                          "제목": _b.get("title", "")})
+                if _bad_isbn:
+                    st.warning("이상해 보이는 ISBN이 **%d건** 있습니다. 구글 시트 "
+                               "`대한사료_도서관_DB` → **books** 탭 → **isbn** 칸을 "
+                               "고쳐 주세요." % len(_bad_isbn))
+                    _show_table(_bad_isbn)
+                else:
+                    st.success("모든 ISBN이 정상입니다.")
 
             with st.expander("➕ 도서 등록  (같은 ISBN을 다시 등록하면 수량이 늘어납니다)", expanded=True):
                 # 여러 권을 연달아 등록하기 좋게 만든 화면입니다.
@@ -2637,10 +2690,9 @@ def _run_library():
                         else:
                             st.error("열을 만들지 못했습니다. 구글 시트 공유 권한을 확인해 주세요.")
                 if _nosum:
-                    st.dataframe(pd.DataFrame([{"ISBN": b.get("isbn"), "제목": b.get("title"),
-                                                "저자": _clean_author(b.get("author"))}
-                                               for b in _nosum]),
-                                 use_container_width=True, hide_index=True)
+                    _show_table([{"ISBN": b.get("isbn"), "제목": b.get("title"),
+                                  "저자": _clean_author(b.get("author"))}
+                                 for b in _nosum])
                 else:
                     st.success("모든 책에 소개가 들어 있습니다.")
 
@@ -2702,7 +2754,7 @@ def _run_library():
                                  % (len(_cands), ", ".join("[%s]" % c for c in _cands)))
                     _seen = _mail_seen()
                     if _seen:
-                        st.dataframe(pd.DataFrame(_seen), use_container_width=True, hide_index=True)
+                        _show_table(_seen)
                     else:
                         st.error("Secrets 를 하나도 읽지 못했습니다. "
                                  "스트림릿 앱 설정(Settings → Secrets)을 확인해 주세요.")
@@ -2759,10 +2811,9 @@ def _run_library():
                                "**실패**면 옆에 적힌 이유를 알려 주세요.")
                     _mlog = list(reversed(_records("maillog")))[:20]
                     if _mlog:
-                        st.dataframe(pd.DataFrame([{"날짜": r.get("date"), "종류": r.get("kind"),
-                                                    "받는 사람": r.get("to"), "결과": r.get("result")}
-                                                   for r in _mlog]),
-                                     use_container_width=True, hide_index=True)
+                        _show_table([{"날짜": r.get("date"), "종류": r.get("kind"),
+                                      "받는 사람": r.get("to"), "결과": r.get("result")}
+                                     for r in _mlog])
                         _bad = [r for r in _mlog
                                 if str(r.get("result", "")).strip() != "성공"]
                         if _bad:
@@ -2784,7 +2835,7 @@ def _run_library():
                         st.caption("이 분들께는 안내 메일이 가지 않습니다. "
                                    "구글 시트 `members` 탭 → `email` 열에 적어 주시거나, "
                                    "다음 대출 때 이메일을 입력받으면 자동으로 저장됩니다.")
-                        st.dataframe(pd.DataFrame(_noml), use_container_width=True, hide_index=True)
+                        _show_table(_noml)
                     else:
                         st.success("대출 중인 모든 분의 이메일이 있습니다.")
 
@@ -2825,14 +2876,14 @@ def _run_library():
                             days = ""
                         rows.append({"도서": l.get("title"), "대출자": f"{l.get('name')}({l.get('saban')})",
                                      "반납예정": l.get("due_date"), "연체일": days})
-                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    _show_table(rows)
 
             with st.expander(f"📗 전체 대출 현황 ({len(active)})"):
                 if active:
-                    st.dataframe(pd.DataFrame([{"도서": l.get("title"), "대출자": f"{l.get('name')}({l.get('saban')})",
-                                               "대출일": l.get("loan_date"), "반납예정": l.get("due_date"),
-                                               "연체": "🔴" if _is_overdue(l) else ""} for l in active]),
-                                 use_container_width=True, hide_index=True)
+                    _show_table([{"도서": l.get("title"),
+                                  "대출자": f"{l.get('name')}({l.get('saban')})",
+                                  "대출일": l.get("loan_date"), "반납예정": l.get("due_date"),
+                                  "연체": "🔴" if _is_overdue(l) else ""} for l in active])
                 else:
                     st.info("대출 중인 도서가 없습니다.")
 
