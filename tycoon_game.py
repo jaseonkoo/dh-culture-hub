@@ -27,6 +27,12 @@ def run_tycoon_game():
             background: #E8F5E9; border: 1px solid #A5D6A7; border-left: 5px solid #4CAF50;
             border-radius: 8px; padding: 0 16px; color: #1B5E20; font-weight: 600;
             font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        /* 로그인 전 안내 바 (회색) */
+        .guest-bar { display: flex; align-items: center; gap: 8px;
+            height: 44px; min-height: 44px; box-sizing: border-box; margin: 0;
+            background: #F1F5F9; border: 1px solid #CBD5E1; border-left: 5px solid #94A3B8;
+            border-radius: 8px; padding: 0 16px; color: #334155; font-weight: 600;
+            font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         /* 버튼·입력칸 높이를 44px 로 통일 (Streamlit 버전과 무관하게 적용되는 선택자) */
         div[data-testid="stButton"] button,
         div[data-testid="stDownloadButton"] button,
@@ -45,7 +51,8 @@ def run_tycoon_game():
         .fb-hero h4 { margin: 0 0 4px; color: #3F7D34; font-size: 1.05em; }
         .fb-hero p { margin: 0; color: #64748b; font-size: 0.9em; }
         /* 마크다운 컨테이너의 음수 여백(-16px) 때문에 바의 레이아웃 높이가 줄어드는 것을 방지 */
-        div[data-testid="stMarkdownContainer"]:has(.login-bar) { margin: 0 !important; padding: 0 !important; }
+        div[data-testid="stMarkdownContainer"]:has(.login-bar),
+        div[data-testid="stMarkdownContainer"]:has(.guest-bar) { margin: 0 !important; padding: 0 !important; }
 
         /* 스트림릿과 통신하기 위한 숨겨진 입력창 */
         div[data-testid="stTextInput"]:has(input[aria-label="hidden_tycoon_data"]) {
@@ -176,78 +183,91 @@ def run_tycoon_game():
             return "-"
 
     # =========================================================
-    #  1) 로그인 게이트 — 로그인 전에는 게임을 보여주지 않음
+    #  🔓 로그인 상태 확인
+    #     ※ 로그인하지 않아도 [실시간 명예의 전당] 은 볼 수 있습니다.
+    #       게임을 하려면 [게임 플레이] 탭에서 로그인하면 됩니다.
     # =========================================================
-    if "member" not in st.session_state:
-        st.markdown("""
-            <div class="login-hero">
-                <h3>🔐 로그인</h3>
-                <p>사번과 이름을 입력해 주세요. </p>
-            </div>
-        """, unsafe_allow_html=True)
+    member = st.session_state.get("member")
 
-        with st.form("tycoon_login_form", clear_on_submit=False):
-            # 사번 · 이름 · 로그인 버튼을 같은 너비(1:1:1)로 한 줄에 배치
-            try:
-                c_saban, c_name, c_btn = st.columns(3, vertical_alignment="center")
-            except TypeError:
-                c_saban, c_name, c_btn = st.columns(3)
-            with c_saban:
-                in_saban = st.text_input("사번", placeholder="사번 입력",
-                                         label_visibility="collapsed")
-            with c_name:
-                in_name = st.text_input("이름", placeholder="이름 입력",
-                                        label_visibility="collapsed")
-            with c_btn:
-                submitted = st.form_submit_button("로그인", use_container_width=True,
-                                                  type="primary")
-
-        if submitted:
-            member = verify_login(in_saban, in_name)
-            if member:
-                st.session_state.member = member
+    if member:
+        try:
+            # 인사말 바와 로그아웃 버튼의 수직 중앙 정렬
+            col_hi, col_out = st.columns([5, 1], vertical_alignment="center")
+        except TypeError:
+            # 구버전 Streamlit 호환 (vertical_alignment 미지원)
+            col_hi, col_out = st.columns([5, 1])
+        with col_hi:
+            pos = f" · {member['position']}" if member.get("position") else ""
+            st.markdown(
+                f'<div class="login-bar"><span>👤</span>'
+                f'<span><b>{member["name"]}</b>님 ({member["team"]}{pos}) 로그인됨</span></div>',
+                unsafe_allow_html=True,
+            )
+        with col_out:
+            if st.button("로그아웃", key="tycoon_logout", use_container_width=True):
+                for k in ["member", "hidden_tycoon_data", "tycoon_score_saved",
+                          "tycoon_feedback_saved", "tycoon_admin_ok"]:
+                    if k in st.session_state:
+                        del st.session_state[k]
                 st.rerun()
-            else:
-                st.error("사번 또는 이름이 일치하지 않습니다. 다시 확인해 주세요.")
-
-        st.info("사번은 등록되어 있는데 로그인이 안 된다면, 최근에 명단이 추가되어 잠시 반영이 늦을 수 있습니다. 잠시 후 다시 시도해 주세요.")
-        return  # 로그인 전에는 여기서 종료
-
-    # =========================================================
-    #  로그인 완료 — 인사말 + 로그아웃
-    # =========================================================
-    member = st.session_state.member
-    try:
-        # 인사말 바와 로그아웃 버튼의 수직 중앙 정렬
-        col_hi, col_out = st.columns([5, 1], vertical_alignment="center")
-    except TypeError:
-        # 구버전 Streamlit 호환 (vertical_alignment 미지원)
-        col_hi, col_out = st.columns([5, 1])
-    with col_hi:
-        pos = f" · {member['position']}" if member.get("position") else ""
+    else:
         st.markdown(
-            f'<div class="login-bar"><span>👤</span>'
-            f'<span><b>{member["name"]}</b>님 ({member["team"]}{pos}) 로그인됨</span></div>',
+            '<div class="guest-bar"><span>🏆</span>'
+            '<span>명예의 전당은 로그인 없이 볼 수 있습니다. '
+            '게임에 참여하시려면 [게임 플레이] 탭에서 로그인해 주세요.</span></div>',
             unsafe_allow_html=True,
         )
-    with col_out:
-        if st.button("로그아웃", key="tycoon_logout", use_container_width=True):
-            for k in ["member", "hidden_tycoon_data", "tycoon_score_saved",
-                      "tycoon_feedback_saved", "tycoon_admin_ok"]:
-                if k in st.session_state:
-                    del st.session_state[k]
-            st.rerun()
+
+    st.markdown("")
 
     tab1, tab2, tab3 = st.tabs(["🎮 게임 플레이", "🏆 실시간 명예의 전당", "🔒 관리자"])
 
+    # =========================================================
+    #  1) 게임 플레이 — 로그인한 사람만 게임이 열립니다.
+    # =========================================================
     with tab1:
-        # 원본 HTML을 통째로 불러온 뒤, 로그인한 사람의 이름·팀을 게임에 자동 주입합니다.
-        try:
-            with open("feedtycoon_game.html", "r", encoding="utf-8") as f:
-                original_html = f.read()
+        if not member:
+            st.markdown("""
+                <div class="login-hero">
+                    <h3>🔐 로그인</h3>
+                    <p>사번과 이름을 입력해 주세요. </p>
+                </div>
+            """, unsafe_allow_html=True)
 
-            # 로그인 정보를 게임 인트로에 주입 (이름·팀 자동 입력 + 입력칸 숨김)
-            inject = """
+            with st.form("tycoon_login_form", clear_on_submit=False):
+                # 사번 · 이름 · 로그인 버튼을 같은 너비(1:1:1)로 한 줄에 배치
+                try:
+                    c_saban, c_name, c_btn = st.columns(3, vertical_alignment="center")
+                except TypeError:
+                    c_saban, c_name, c_btn = st.columns(3)
+                with c_saban:
+                    in_saban = st.text_input("사번", placeholder="사번 입력",
+                                             label_visibility="collapsed")
+                with c_name:
+                    in_name = st.text_input("이름", placeholder="이름 입력",
+                                            label_visibility="collapsed")
+                with c_btn:
+                    submitted = st.form_submit_button("로그인", use_container_width=True,
+                                                      type="primary")
+
+            if submitted:
+                found = verify_login(in_saban, in_name)
+                if found:
+                    st.session_state.member = found
+                    st.rerun()
+                else:
+                    st.error("사번 또는 이름이 일치하지 않습니다. 다시 확인해 주세요.")
+
+            st.info("사번은 등록되어 있는데 로그인이 안 된다면, 최근에 명단이 추가되어 잠시 반영이 늦을 수 있습니다. 잠시 후 다시 시도해 주세요.")
+
+        else:
+            # 원본 HTML을 통째로 불러온 뒤, 로그인한 사람의 이름·팀을 게임에 자동 주입합니다.
+            try:
+                with open("feedtycoon_game.html", "r", encoding="utf-8") as f:
+                    original_html = f.read()
+
+                # 로그인 정보를 게임 인트로에 주입 (이름·팀 자동 입력 + 입력칸 숨김)
+                inject = """
 <script>
 (function(){
   try{
@@ -267,74 +287,77 @@ def run_tycoon_game():
 </script>
 """ % (json.dumps(member.get("name", "")), json.dumps(member.get("team", "")))
 
-            original_html = original_html.replace("</body>", inject + "</body>")
+                original_html = original_html.replace("</body>", inject + "</body>")
 
-            components.html(original_html, height=900, scrolling=True)
-        except Exception as e:
-            st.error(f"HTML 파일을 찾을 수 없습니다: {e}")
+                components.html(original_html, height=900, scrolling=True)
+            except Exception as e:
+                st.error(f"HTML 파일을 찾을 수 없습니다: {e}")
 
-        # 자바스크립트가 보내는 순이익 데이터를 받는 투명한 박스
-        js_data = st.text_input("hidden_tycoon_data", key="hidden_tycoon_data", label_visibility="collapsed")
+            # 자바스크립트가 보내는 순이익 데이터를 받는 투명한 박스
+            js_data = st.text_input("hidden_tycoon_data", key="hidden_tycoon_data", label_visibility="collapsed")
 
-        if js_data and 'tycoon_score_saved' not in st.session_state:
-            try:
-                data = json.loads(js_data)
-                with st.spinner("📡 최종 경영 실적을 명예의 전당에 등록 중입니다..."):
-                    # 신원(사번·이름·팀)은 로그인 정보에서 가져오고, 순이익만 게임에서 받습니다.
-                    if save_tycoon_score(member.get("saban"), member.get("name"),
-                                         member.get("team"), data.get("profit", 0)):
-                        st.session_state.tycoon_score_saved = True
-                        st.balloons()
-                st.rerun()
-            except Exception:
-                pass
+            if js_data and 'tycoon_score_saved' not in st.session_state:
+                try:
+                    data = json.loads(js_data)
+                    with st.spinner("📡 최종 경영 실적을 명예의 전당에 등록 중입니다..."):
+                        # 신원(사번·이름·팀)은 로그인 정보에서 가져오고, 순이익만 게임에서 받습니다.
+                        if save_tycoon_score(member.get("saban"), member.get("name"),
+                                             member.get("team"), data.get("profit", 0)):
+                            st.session_state.tycoon_score_saved = True
+                            st.balloons()
+                    st.rerun()
+                except Exception:
+                    pass
 
-        if 'tycoon_score_saved' in st.session_state:
-            st.success("✅ 실적이 성공적으로 명예의 전당에 등록되었습니다! [실시간 명예의 전당] 탭을 확인해보세요.")
+            if 'tycoon_score_saved' in st.session_state:
+                st.success("✅ 실적이 성공적으로 명예의 전당에 등록되었습니다! [실시간 명예의 전당] 탭을 확인해보세요.")
 
-            # ---------- 게임 종료 후 의견 남기기 ----------
-            if 'tycoon_feedback_saved' not in st.session_state:
-                st.markdown("""
-                    <div class="fb-hero">
-                        <h4>💬 베타 테스트 의견을 들려주세요</h4>
-                        <p>남겨주신 의견은 관리자만 열람하며, 게임 개선에만 활용됩니다.</p>
-                    </div>
-                """, unsafe_allow_html=True)
+                # ---------- 게임 종료 후 의견 남기기 ----------
+                if 'tycoon_feedback_saved' not in st.session_state:
+                    st.markdown("""
+                        <div class="fb-hero">
+                            <h4>💬 베타 테스트 의견을 들려주세요</h4>
+                            <p>남겨주신 의견은 관리자만 열람하며, 게임 개선에만 활용됩니다.</p>
+                        </div>
+                    """, unsafe_allow_html=True)
 
-                with st.form("tycoon_feedback_form"):
-                    rating = st.radio("만족도", [1, 2, 3, 4, 5], index=3, horizontal=True,
-                                      format_func=lambda x: "⭐" * x)
-                    impression = st.text_area(
-                        "소감",
-                        placeholder="게임을 해보니 어떠셨나요? (재미, 난이도, 사료 밸류체인 이해에 도움이 되었는지 등)",
-                        height=110)
-                    improvement = st.text_area(
-                        "개선점",
-                        placeholder="불편했던 점이나 추가되면 좋을 기능을 자유롭게 적어주세요.",
-                        height=110)
-                    fb_submitted = st.form_submit_button("의견 제출", use_container_width=True)
+                    with st.form("tycoon_feedback_form"):
+                        rating = st.radio("만족도", [1, 2, 3, 4, 5], index=3, horizontal=True,
+                                          format_func=lambda x: "⭐" * x)
+                        impression = st.text_area(
+                            "소감",
+                            placeholder="게임을 해보니 어떠셨나요? (재미, 난이도, 사료 밸류체인 이해에 도움이 되었는지 등)",
+                            height=110)
+                        improvement = st.text_area(
+                            "개선점",
+                            placeholder="불편했던 점이나 추가되면 좋을 기능을 자유롭게 적어주세요.",
+                            height=110)
+                        fb_submitted = st.form_submit_button("의견 제출", use_container_width=True)
 
-                if fb_submitted:
-                    if not impression.strip() and not improvement.strip():
-                        st.warning("소감과 개선점 중 최소 한 가지는 입력해 주세요.")
-                    else:
-                        with st.spinner("의견을 저장하는 중입니다..."):
-                            saved = save_feedback(member.get("saban"), member.get("name"),
-                                                  member.get("team"), rating, impression, improvement)
-                        if saved:
-                            st.session_state.tycoon_feedback_saved = True
-                            st.rerun()
+                    if fb_submitted:
+                        if not impression.strip() and not improvement.strip():
+                            st.warning("소감과 개선점 중 최소 한 가지는 입력해 주세요.")
                         else:
-                            st.error("의견 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.")
-            else:
-                st.info("💬 소중한 의견 감사합니다! 베타 개선에 반영하겠습니다.")
+                            with st.spinner("의견을 저장하는 중입니다..."):
+                                saved = save_feedback(member.get("saban"), member.get("name"),
+                                                      member.get("team"), rating, impression, improvement)
+                            if saved:
+                                st.session_state.tycoon_feedback_saved = True
+                                st.rerun()
+                            else:
+                                st.error("의견 저장에 실패했습니다. 잠시 후 다시 시도해 주세요.")
+                else:
+                    st.info("💬 소중한 의견 감사합니다! 베타 개선에 반영하겠습니다.")
 
-            if st.button("🔄 게임 초기화 (다시 하기)"):
-                for k in ['hidden_tycoon_data', 'tycoon_score_saved', 'tycoon_feedback_saved']:
-                    if k in st.session_state:
-                        del st.session_state[k]
-                st.rerun()
+                if st.button("🔄 게임 초기화 (다시 하기)"):
+                    for k in ['hidden_tycoon_data', 'tycoon_score_saved', 'tycoon_feedback_saved']:
+                        if k in st.session_state:
+                            del st.session_state[k]
+                    st.rerun()
 
+    # =========================================================
+    #  2) 실시간 명예의 전당 — 로그인 없이도 누구나 볼 수 있습니다.
+    # =========================================================
     with tab2:
         st.subheader("🏆 밸류체인 최고 경영자 (Top 10)")
         if st.button("🔄 순위 새로고침"):
@@ -386,6 +409,10 @@ def run_tycoon_game():
                     {'selector': 'th', 'props': [('text-align', 'center'), ('background-color', '#f8f9fa')]}
                 ])
                 st.dataframe(styled_df, use_container_width=True)
+
+            if not member:
+                st.markdown("")
+                st.caption("🎮 직접 도전해 보시려면 [게임 플레이] 탭에서 사번과 이름으로 로그인해 주세요.")
 
     # =========================================================
     #  관리자 전용 — 참여자 의견 열람 (비밀번호 필요)
