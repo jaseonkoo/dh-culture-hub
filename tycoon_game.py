@@ -54,6 +54,15 @@ def run_tycoon_game():
         div[data-testid="stMarkdownContainer"]:has(.login-bar),
         div[data-testid="stMarkdownContainer"]:has(.guest-bar) { margin: 0 !important; padding: 0 !important; }
 
+        /* 🖼 게임이 한 화면에 들어오도록 위쪽 여백을 줄입니다 */
+        .block-container { padding-top: 1.2rem !important; padding-bottom: 1rem !important; }
+        .tycoon-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+            margin: 0 0 10px; }
+        .tycoon-head .t { font-size:1.55rem; font-weight:800; color:#1B1F24; letter-spacing:-.02em; }
+        .tycoon-head .c { font-size:.9rem; color:#64748b; }
+        /* 게임 창(iframe)은 테두리 없이 꽉 차게 */
+        div[data-testid="stCustomComponentV1"] iframe { width:100% !important; border:0 !important; }
+
         /* 스트림릿과 통신하기 위한 숨겨진 입력창 */
         div[data-testid="stTextInput"]:has(input[aria-label="hidden_tycoon_data"]) {
             position: absolute !important; left: -9999px !important; opacity: 0 !important; height: 0px !important;
@@ -61,9 +70,11 @@ def run_tycoon_game():
         </style>
     """, unsafe_allow_html=True)
 
-    st.header("🌾 대한사료 밸류체인 타이쿤 (Beta)")
-    st.caption("원료 구매부터 농장 배송까지! 최고의 순이익을 달성해 보세요.")
-    st.markdown("---")
+    st.markdown(
+        "<div class='tycoon-head'>"
+        "<span class='t'>🌾 대한사료 밸류체인 타이쿤 (Beta)</span>"
+        "<span class='c'>원료 구매부터 농장 배송까지! 최고의 순이익을 달성해 보세요.</span>"
+        "</div>", unsafe_allow_html=True)
 
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/spreadsheets",
              "https://www.googleapis.com/auth/drive.file", "https://www.googleapis.com/auth/drive"]
@@ -289,7 +300,8 @@ def run_tycoon_game():
 
                 original_html = original_html.replace("</body>", inject + "</body>")
 
-                components.html(original_html, height=900, scrolling=True)
+                # 높이는 넉넉히 잡아 두고, 게임 쪽 fitFrame() 이 내용에 맞춰 다시 맞춥니다.
+                components.html(original_html, height=1250, scrolling=True)
             except Exception as e:
                 st.error(f"HTML 파일을 찾을 수 없습니다: {e}")
 
