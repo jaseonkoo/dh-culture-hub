@@ -48,14 +48,16 @@
   #startScreen h1{font-size:42px;color:var(--leaf-deep);text-shadow:2px 3px 0 #fff,3px 5px 0 rgba(169,120,75,.22);}
   .sub{font-size:19px;color:var(--wood-dark);margin:8px 0;}
   /* 흐름 배너(교육 핵심) */
-  .flow{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;margin:18px 0 6px;}
+  /* 🆕 시작 화면의 상자들(흐름 배너·설명·모드 카드)의 좌우 폭을 하나로 맞춥니다 */
+  .flow,.howto,.modes{max-width:720px;margin-left:auto;margin-right:auto;}
+  .flow{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;margin-top:18px;margin-bottom:6px;}
   .flow .step{background:var(--card);border:3px solid var(--line);border-radius:18px;padding:10px 16px;
     font-family:'Jua';font-size:17px;min-width:110px;box-shadow:0 4px 0 rgba(169,120,75,.16);}
   .flow .step .big{font-size:30px;display:block;}
   .flow .step .big.multi{font-size:24px;letter-spacing:1px;}
   .flow .step .big.flip{transform:scaleX(-1);}
   .flow .arrow{font-size:26px;color:var(--leaf);}
-  .howto{margin:20px auto 0;max-width:600px;background:var(--card);border:3px dashed var(--line);
+  .howto{margin-top:20px;background:var(--card);border:3px dashed var(--line);
     border-radius:20px;padding:16px 22px;text-align:left;}
   .info-row{display:grid;grid-template-columns:52px 1fr;gap:12px;align-items:stretch;
     margin:9px 0;font-size:16px;line-height:1.6;}
@@ -70,13 +72,14 @@
   .entry input:focus{outline:none;border-color:var(--leaf);}
   .start-actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:16px;}
   /* ===== 모드 선택 카드 ===== */
-  .modes{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin:22px auto 4px;max-width:700px;}
-  .mode-card{flex:1 1 300px;background:var(--card);border:3px solid var(--leaf);border-radius:20px;
+  .modes{display:flex;gap:14px;align-items:stretch;justify-content:center;flex-wrap:wrap;
+    margin-top:22px;margin-bottom:4px;}
+  .mode-card{flex:1 1 0;min-width:280px;background:var(--card);border:3px solid var(--leaf);border-radius:20px;
     padding:14px 18px;text-align:left;box-shadow:0 4px 0 rgba(169,120,75,.16);}
   .mode-card.learn{border-color:var(--sun-dark);}
   .mode-card h4{font-family:'Jua';font-size:20px;margin:0 0 6px;color:var(--leaf-deep);}
   .mode-card.learn h4{color:var(--sun-dark);}
-  .mode-card p{margin:0;font-size:15px;line-height:1.6;color:var(--brown);}
+  .mode-card p{margin:0;font-size:15px;line-height:1.6;color:var(--brown);word-break:keep-all;}
   .mode-card p b{color:var(--leaf-deep);}
   .mode-card.learn p b{color:var(--sun-dark);}
   /* ===== HUD (상단 고정) ===== */
@@ -106,22 +109,18 @@
   @keyframes blink{50%{opacity:.5}}
   .mode-tag{font-family:'Jua';font-size:16px;color:#fff;background:var(--sun-dark);
     padding:7px 14px;border-radius:14px;box-shadow:0 3px 0 rgba(0,0,0,.14);white-space:nowrap;}
-  /* ===== 학습 모드 안내판 ===== */
-  .learn-panel{background:linear-gradient(180deg,#FFF9E8,var(--card));border:3px solid var(--sun);
-    border-radius:20px;padding:14px 18px;margin-bottom:12px;box-shadow:0 4px 0 rgba(224,168,46,.25);}
-  .lp-head{font-family:'Jua';font-size:19px;color:var(--sun-dark);margin-bottom:10px;}
-  .missions{display:flex;gap:8px;flex-wrap:wrap;}
-  .ms{flex:1 1 150px;background:var(--card);border:2px solid var(--line);border-radius:14px;
-    padding:9px 12px;font-size:14px;line-height:1.5;}
-  .ms .t{font-family:'Jua';font-size:16px;display:block;margin-bottom:2px;}
-  .ms.now{border-color:var(--sun-dark);background:#FFF4D6;box-shadow:0 0 0 3px rgba(224,168,46,.25);}
-  .ms.done{border-color:var(--leaf);background:#EEF8E9;}
-  .ms.done .t{color:var(--leaf-deep);}
-  .lp-tip{margin-top:10px;background:var(--card);border:2px dashed var(--line);border-radius:14px;
-    padding:10px 14px;font-size:15px;line-height:1.65;}
-  .lp-tip b{color:var(--leaf-deep);}
-  .lp-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
-  .econ{margin-top:10px;background:var(--card);border:2px solid var(--line);border-radius:14px;padding:10px 12px;overflow-x:auto;}
+  /* ===== 학습 모드 : 화면을 가리지 않는 '떠 있는 안내 쪽지' ===== */
+  .ltip{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:70;
+    width:min(780px,94vw);background:#FFF9E8;border:3px solid var(--sun-dark);border-radius:16px;
+    padding:12px 44px 12px 16px;font-size:15px;line-height:1.65;color:var(--brown);
+    box-shadow:0 10px 24px rgba(107,78,46,.3);animation:pop .25s ease;word-break:keep-all;}
+  .ltip b{color:var(--leaf-deep);}
+  .ltip .x{position:absolute;top:4px;right:12px;cursor:pointer;font-family:'Jua';
+    font-size:20px;color:var(--wood-dark);line-height:1.2;}
+  .ltip .x:hover{color:var(--tomato-dark);}
+  /* 학습 모드 작은 버튼 (상단 바) */
+  .hud .btn-sm{padding:7px 12px;font-size:14px;}
+  .econ{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:10px 12px;overflow-x:auto;}
   .econ table{width:100%;border-collapse:collapse;font-size:14px;min-width:520px;}
   .econ th,.econ td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--line);}
   .econ th:first-child,.econ td:first-child{text-align:left;}
@@ -279,6 +278,7 @@
   .mask.active{display:flex;}
   .abox{background:var(--cream);border:5px solid var(--wood-dark);border-radius:24px;width:min(560px,96vw);
     max-height:88vh;overflow:auto;padding:20px;box-shadow:0 16px 40px rgba(0,0,0,.4);}
+  .abox.wide{width:min(780px,96vw);}
   .abox h2{color:var(--leaf-deep);font-size:22px;} .anote{font-size:14px;color:var(--wood-dark);margin:4px 0 12px;}
   .grp{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px;}
   .grp h3{font-size:16px;color:var(--wood-dark);margin-bottom:8px;}
@@ -327,12 +327,14 @@
         <h4>🎮 게임 모드</h4>
         <p>제한 시간 <b>3분</b> 안에 최대 순이익에 도전합니다.<br>
            결과는 <b>명예의 전당</b>에 등록됩니다.</p>
+        <p style="margin-top:6px;color:#8a7a62">⏱ 3분 · 🏆 순위 등록</p>
       </div>
       <div class="mode-card learn">
         <h4>📖 학습 모드</h4>
-        <p><b>시간 제한이 없습니다.</b> 단계별 설명과 미션을 따라가며
-           밸류체인과 <b>원가 구조</b>를 차근차근 익힙니다.<br>
+        <p><b>시간 제한이 없습니다.</b> 단계 설명과 <b>원가 구조</b>를 보며
+           밸류체인을 차근차근 익힙니다.<br>
            순위에는 <b>등록되지 않습니다.</b></p>
+        <p style="margin-top:6px;color:#8a7a62">⏱ 무제한 · 📖 설명 제공</p>
       </div>
     </div>
     <div class="entry">
@@ -359,18 +361,9 @@
       <div class="combo" id="comboBox"></div>
       <div class="mode-tag" id="modeTag" style="display:none">📖 학습 모드</div>
       <div class="timer" id="timerText">03:00</div>
+      <button class="btn btn-sun btn-sm" id="econBtn" style="display:none" onclick="openEcon()">💡 원가 구조</button>
+      <button class="btn btn-wood btn-sm" id="diseaseBtn" style="display:none" onclick="learnDisease()">🚨 돌발상황</button>
       <button class="btn btn-wood btn-sm" id="endLearnBtn" style="display:none" onclick="endGame()">학습 끝내기</button>
-    </div>
-    <!-- 학습 모드 안내판 -->
-    <div class="learn-panel" id="learnPanel" style="display:none">
-      <div class="lp-head">📖 학습 미션 — 순서대로 한 번씩 해 보세요</div>
-      <div class="missions" id="missionBox"></div>
-      <div class="lp-tip" id="learnTip"></div>
-      <div class="lp-actions">
-        <button class="btn btn-sun btn-sm" onclick="toggleEcon()">💡 한 포대의 원가 구조 보기</button>
-        <button class="btn btn-wood btn-sm" onclick="learnDisease()">🚨 전염병·태풍 겪어보기</button>
-      </div>
-      <div class="econ" id="econBox" style="display:none"></div>
     </div>
     <div class="board" id="board"></div>
   </section>
@@ -401,6 +394,13 @@
   <div id="adminFields"></div>
   <div class="arow"><button class="btn btn-wood btn-sm" onclick="closeAdmin()">닫기</button>
   <button class="btn btn-green btn-sm" onclick="saveAdmin()">💾 저장</button></div>
+</div></div>
+<div class="mask" id="econMask"><div class="abox wide">
+  <h2>💡 사료 한 포대(10t)의 원가 구조</h2>
+  <div class="anote">원료를 사서 만들고 배송해 농장에 팔기까지, 돈이 어디로 가는지 보여 줍니다.</div>
+  <div class="econ" id="econBox"></div>
+  <div class="arow" style="justify-content:flex-end;margin-top:12px">
+    <button class="btn btn-wood btn-sm" onclick="closeEcon()">닫기</button></div>
 </div></div>
 <div class="toastL" id="toastL"></div>
 <div class="flyL" id="flyL"></div>
@@ -440,7 +440,6 @@ let teamName='',playerName='';
 let combo,lastDeliverTick,goalReached,gameStartTick,rafId,firstBuyDone;
 let stat;
 let running=false;
-let lastMissionKey='';   // 학습 미션판을 꼭 필요할 때만 다시 그리기 위한 표시
 function isLearn(){return MODE==='learn';}
 function resetGame(){
   money=cfg.start_money;
@@ -451,7 +450,7 @@ function resetGame(){
   buyOrders={};MAT_NAMES.forEach(m=>buyOrders[m]=[]);
   isDisease=[0,0,0,0];diseaseStart=[0,0,0,0];happyUntil=[0,0,0,0];diseaseLabel=['','','',''];
   combo=0;lastDeliverTick=0;goalReached=false;firstBuyDone=false;
-  lastMissionKey='';
+  lastTipStep=-1;
   stat={matTons:{},matCost:{},madeTons:[0,0,0,0],makeCost:[0,0,0,0],
         shipTons:[0,0,0,0],shipCost:[0,0,0,0],revenue:[0,0,0,0],comboBonus:0};
   MAT_NAMES.forEach(m=>{stat.matTons[m]=0;stat.matCost[m]=0;});
@@ -463,7 +462,7 @@ function man(v){return Math.round(v/10000).toLocaleString()+'만원';}
 /* ===== 화면 ===== */
 function show(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById(id).classList.add('active');}
-function goStart(){cancelAnimationFrame(rafId);running=false;show('startScreen');}
+function goStart(){cancelAnimationFrame(rafId);running=false;hideTip();closeEcon();show('startScreen');}
 // 💡 여기서부터 버튼을 눌렀을 때 실행되는 메인 시작 로직입니다!
 function startGame(mode){
   MODE=(mode==='learn')?'learn':'game';
@@ -482,12 +481,13 @@ function startGame(mode){
   resetGame();buildBoard();show('playScreen');
 
   // 모드에 따라 상단 표시 바꾸기
-  document.getElementById('modeTag').style.display = isLearn() ? '' : 'none';
-  document.getElementById('endLearnBtn').style.display = isLearn() ? '' : 'none';
-  document.getElementById('learnPanel').style.display = isLearn() ? '' : 'none';
-  document.getElementById('econBox').style.display='none';
+  const lv = isLearn() ? '' : 'none';
+  document.getElementById('modeTag').style.display = lv;
+  document.getElementById('endLearnBtn').style.display = lv;
+  document.getElementById('econBtn').style.display = lv;
+  document.getElementById('diseaseBtn').style.display = lv;
   document.getElementById('timerText').classList.toggle('learn', isLearn());
-  if(isLearn()) renderEcon();
+  closeEcon();hideTip();lastTipStep=-1;
 
   running=true;
   gameStartTick=performance.now();cancelAnimationFrame(rafId);loop();
@@ -581,27 +581,35 @@ function buildBoard(){
 }
 function showBlock(id){document.getElementById(id).style.display='';}
 function hideBlock(id){document.getElementById(id).style.display='none';}
-/* ===== 📖 학습 모드 : 미션 · 원가표 · 전염병 체험 ===== */
-const MISSIONS=[
-  {t:'① 원료 구매', d:'원료를 한 번 사 보세요.',
-   tip:'🌽 <b>원료 구매</b> — 사료의 재료는 대부분 <b>수입</b>합니다. 구매 버튼을 누르면 배가 출발하고, '
-      +'도착해야 재고로 들어옵니다. 바로 쓸 수 없다는 점이 실제 구매 업무의 핵심이에요. '
-      +'같은 원료는 배 2척까지 동시에 들여올 수 있습니다.'},
-  {t:'② 사료 제조', d:'공장에서 사료를 만들어 보세요.',
-   tip:'🏭 <b>사료 제조</b> — 축종마다 <b>배합비</b>가 다릅니다. 예를 들어 양돈 사료 10t 은 옥수수 6t + 대두박 4t 로 만듭니다. '
-      +'원료가 한 가지라도 모자라면 제조가 시작되지 않아요. 제조에는 시간과 제조비가 듭니다.'},
-  {t:'③ 배송', d:'만든 사료를 농장으로 보내 보세요.',
-   tip:'🚚 <b>배송</b> — 창고에 쌓인 사료는 아직 <b>돈이 아닙니다.</b> 농장에 도착해야 매출이 됩니다. '
-      +'만들기만 하고 배송이 밀리면 재고와 비용만 늘어납니다.'},
-  {t:'④ 판매·입금', d:'농장 대금이 들어오는 것을 확인하세요.',
-   tip:'💰 <b>판매·입금</b> — 납품이 끝나면 대금이 들어옵니다. 이어서 배송하면 <b>콤보 보너스</b>가 붙어요. '
-      +'아래 [한 포대의 원가 구조 보기] 를 눌러 <b>마진이 얼마나 얇은지</b> 꼭 확인해 보세요.'},
-  {t:'🎓 모두 완료', d:'밸류체인 한 바퀴를 모두 돌았습니다!',
-   tip:'🎉 <b>한 바퀴 완주!</b> 원료 구매 → 제조 → 배송 → 입금이 끊기지 않고 돌아가야 돈이 됩니다. '
-      +'이제 시간 제한 없이 여러 축종을 함께 돌려 보고, [전염병·태풍 겪어보기] 로 돌발 상황도 경험해 보세요. '
-      +'준비가 되면 위쪽 <b>[학습 끝내기]</b> 로 경영 실적 리포트를 확인할 수 있습니다.'}
+/* ===== 📖 학습 모드 : 안내 쪽지 · 원가표 · 돌발상황 =====
+   ※ 미션판을 화면 위에 두면 게임판이 아래로 밀려서, 화면을 가리지 않는
+     '떠 있는 쪽지'로 바꿨습니다. 단계가 넘어갈 때만 잠깐 떴다가 사라집니다. */
+const LEARN_TIPS=[
+  '🌽 <b>① 원료 구매</b> — 사료 재료는 대부분 <b>수입</b>합니다. 구매를 누르면 배가 출발하고, '
+  +'도착해야 재고가 됩니다. <b>사자마자 쓸 수 없다</b>는 점이 구매 업무의 핵심이에요. '
+  +'같은 원료는 배 2척까지 동시에 들여올 수 있습니다. 👉 원료를 한 번 사 보세요.',
+  '🏭 <b>② 사료 제조</b> — 축종마다 <b>배합비</b>가 다릅니다. 양돈 사료 10t 은 옥수수 6t + 대두박 4t 로 만듭니다. '
+  +'원료가 하나라도 모자라면 시작되지 않고, 시간과 제조비가 듭니다. 👉 공장에서 사료를 만들어 보세요.',
+  '🚚 <b>③ 배송</b> — 창고에 쌓인 사료는 아직 <b>돈이 아닙니다.</b> 농장에 도착해야 매출이 됩니다. '
+  +'만들기만 하고 배송이 밀리면 재고와 비용만 늘어납니다. 👉 만든 사료를 농장으로 보내 보세요.',
+  '💰 <b>④ 판매·입금</b> — 납품이 끝나면 대금이 들어옵니다. 이어서 배송하면 <b>콤보 보너스</b>가 붙어요. '
+  +'위쪽 <b>[💡 원가 구조]</b> 를 눌러 마진이 얼마나 얇은지 꼭 확인해 보세요.',
+  '🎉 <b>한 바퀴 완주!</b> 원료 구매 → 제조 → 배송 → 입금이 끊기지 않고 돌아가야 돈이 됩니다. '
+  +'시간 제한이 없으니 여러 축종을 함께 돌려 보고, <b>[🚨 돌발상황]</b> 도 겪어 보세요. '
+  +'다 보셨으면 위쪽 <b>[학습 끝내기]</b> 로 경영 실적 리포트를 확인하세요.'
 ];
-function missionStep(){
+let lastTipStep=-1, tipTimer=null;
+function showTip(html,ms){
+  hideTip();
+  const d=document.createElement('div');
+  d.className='ltip';d.id='ltip';
+  d.innerHTML=html+'<span class="x" onclick="hideTip()">✕</span>';
+  document.body.appendChild(d);
+  if(tipTimer)clearTimeout(tipTimer);
+  tipTimer=setTimeout(hideTip, ms||11000);
+}
+function hideTip(){const o=document.getElementById('ltip');if(o)o.remove();}
+function learnStep(){
   const madeAny=stat.madeTons.some(v=>v>0);
   const shipAny=stat.shipTons.some(v=>v>0);
   const revAny=stat.revenue.some(v=>v>0);
@@ -611,18 +619,11 @@ function missionStep(){
   if(!revAny) return 3;
   return 4;
 }
-function renderMissions(){
-  const step=missionStep();
-  const key=String(step);
-  if(key===lastMissionKey) return;
-  lastMissionKey=key;
-  document.getElementById('missionBox').innerHTML=
-    MISSIONS.slice(0,4).map((m,idx)=>{
-      const cls = idx<step ? 'ms done' : (idx===step ? 'ms now' : 'ms');
-      const mark = idx<step ? '✅ ' : (idx===step ? '👉 ' : '');
-      return `<div class="${cls}"><span class="t">${mark}${m.t}</span>${m.d}</div>`;
-    }).join('');
-  document.getElementById('learnTip').innerHTML=MISSIONS[step].tip;
+function checkLearnTip(){
+  const step=learnStep();
+  if(step===lastTipStep) return;
+  lastTipStep=step;
+  showTip(LEARN_TIPS[step], step===4?14000:11000);
 }
 function matCostOf(i){
   // 사료 10t 을 만들 때 들어가는 원료비 (원료 단가는 10t 기준이라 1t = 단가/10)
@@ -647,11 +648,8 @@ function renderEcon(){
       원료를 싸게 사고 <b>빠르게 많이 팔아 회전율을 높이는 것</b>이 사료회사 경영의 핵심입니다.
       한 번 배송이 막히면 그만큼 이익이 크게 줄어듭니다.</div>`;
 }
-function toggleEcon(){
-  const box=document.getElementById('econBox');
-  if(box.style.display==='none'){renderEcon();box.style.display='';}
-  else box.style.display='none';
-}
+function openEcon(){renderEcon();document.getElementById('econMask').classList.add('active');}
+function closeEcon(){document.getElementById('econMask').classList.remove('active');}
 function learnDisease(){
   if(!running||!isLearn())return;
   const free=[0,1,2,3].filter(i=>!isDisease[i]);
@@ -659,10 +657,9 @@ function learnDisease(){
   const i=free[Math.floor(Math.random()*free.length)];
   isDisease[i]=1;diseaseStart[i]=performance.now();
   diseaseLabel[i]=DISEASES[i][Math.floor(Math.random()*DISEASES[i].length)];
-  document.getElementById('learnTip').innerHTML=
-    `🚨 <b>${FARM_NAMES[i]}</b> 에 <b>${diseaseLabel[i]}</b> 발생! 잠시 출하가 막힙니다. `
+  showTip(`🚨 <b>${FARM_NAMES[i]}</b> 에 <b>${diseaseLabel[i]}</b> 발생! 잠시 출하가 막힙니다. `
     +`실제로도 전염병·태풍이 생기면 <b>만들어 둔 사료를 팔 수 없어</b> 재고와 비용만 쌓입니다. `
-    +`이럴 때는 다른 축종 라인으로 생산을 돌리는 판단이 필요합니다.`;
+    +`이럴 때는 다른 축종 라인으로 생산을 돌리는 판단이 필요합니다.`, 12000);
 }
 /* ===== 액션 ===== */
 function buyMat(m){const price=cfg["price_"+m];
@@ -780,7 +777,7 @@ function loop(){
   }
   if(!goalReached && money-cfg.start_money>=cfg.goal_profit){goalReached=true;bigToast("🎉 목표 달성! 계속 벌어보세요!");}
   render(now,left);
-  if(isLearn()) renderMissions();
+  if(isLearn()) checkLearnTip();
   rafId=requestAnimationFrame(loop);
 }
 /* ===== 렌더 ===== */
@@ -907,6 +904,7 @@ function bigToast(text){
   layer.appendChild(t);setTimeout(()=>t.remove(),1400);}
 /* ===== 게임오버 및 스트림릿 통신 ===== */
 function endGame(){cancelAnimationFrame(rafId);running=false;
+  hideTip();closeEcon();
   document.getElementById('flyL').innerHTML='';document.getElementById('toastL').innerHTML='';
   document.getElementById('finalMoney').textContent=man(money);
   const profit=money-cfg.start_money;let g;
