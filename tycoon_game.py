@@ -21,23 +21,15 @@ def run_tycoon_game():
         .login-hero h3 { margin: 0 0 4px; color: #3F7D34; }
         .login-hero p { margin: 0; color: #64748b; font-size: 0.92em; }
 
-        /* 로그인 상태 바 — 로그아웃 버튼과 높이·수직 정렬을 정확히 일치시킴 */
+        /* 로그인 상태 바
+           ⚠️ 예전에는 이 바에 맞추려고 '모든 버튼 높이'를 44px 로 고정했는데,
+              그 때문에 [플랫폼 메인으로 나가기] 같은 버튼의 글자 윗부분이 잘렸습니다.
+              이제 버튼은 스트림릿 기본 모양 그대로 두고, 이 바가 버튼 높이에 맞춥니다. */
         .login-bar { display: flex; align-items: center; gap: 8px;
-            height: 44px; min-height: 44px; box-sizing: border-box; margin: 0;
+            box-sizing: border-box; margin: 0; min-height: 2.5rem; padding: 8px 16px;
             background: #E8F5E9; border: 1px solid #A5D6A7; border-left: 5px solid #4CAF50;
-            border-radius: 8px; padding: 0 16px; color: #1B5E20; font-weight: 600;
+            border-radius: 8px; color: #1B5E20; font-weight: 600;
             font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        /* 버튼·입력칸 높이를 44px 로 통일 (Streamlit 버전과 무관하게 적용되는 선택자) */
-        div[data-testid="stButton"] button,
-        div[data-testid="stDownloadButton"] button,
-        div[data-testid="stFormSubmitButton"] button {
-            height: 44px; min-height: 44px; box-sizing: border-box; margin: 0;
-            display: inline-flex; align-items: center; justify-content: center; }
-        /* 입력칸은 '테두리가 그려지는 래퍼'의 높이를 맞춰야 버튼과 정확히 같아집니다 */
-        div[data-testid="stTextInput"] div:has(> input) {
-            height: 44px; min-height: 44px; box-sizing: border-box; }
-        div[data-testid="stTextInput"] input {
-            height: 100%; box-sizing: border-box; }
 
         /* 의견(베타 피드백) 안내 카드 */
         .fb-hero { border: 2px dashed #A5D6A7; border-radius: 14px; background: #F9FFF9;
