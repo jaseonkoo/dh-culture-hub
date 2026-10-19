@@ -39,9 +39,10 @@ def run_tycoon_game():
         /* 마크다운 컨테이너의 음수 여백(-16px) 때문에 바의 레이아웃 높이가 줄어드는 것을 방지 */
         div[data-testid="stMarkdownContainer"]:has(.login-bar) { margin: 0 !important; padding: 0 !important; }
 
-        /* 🖼 위쪽 여백 — 너무 줄이면 [플랫폼 메인으로 나가기] 버튼이
-           스트림릿 상단 막대에 가려서 안 보입니다. 가리지 않을 만큼만 둡니다. */
-        .block-container { padding-top: 3rem !important; padding-bottom: 1rem !important; }
+        /* ⚠️ 위쪽 여백은 건드리지 않습니다.
+           여백을 줄이면 [플랫폼 메인으로 나가기] 버튼이 스트림릿 상단 막대에
+           가려서 윗부분이 잘려 보입니다. (아래쪽 여백만 조금 줄입니다) */
+        .block-container { padding-bottom: 1rem !important; }
         /* 일반 버튼(나가기·로그아웃 등)을 또렷하게 */
         div[data-testid="stButton"] button:not([kind="primary"]) {
             border: 1.5px solid #B9C4D0 !important; background: #FFFFFF !important;
