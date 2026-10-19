@@ -27,12 +27,6 @@ def run_tycoon_game():
             background: #E8F5E9; border: 1px solid #A5D6A7; border-left: 5px solid #4CAF50;
             border-radius: 8px; padding: 0 16px; color: #1B5E20; font-weight: 600;
             font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        /* 로그인 전 안내 바 (회색) */
-        .guest-bar { display: flex; align-items: center; gap: 8px;
-            height: 44px; min-height: 44px; box-sizing: border-box; margin: 0;
-            background: #F1F5F9; border: 1px solid #CBD5E1; border-left: 5px solid #94A3B8;
-            border-radius: 8px; padding: 0 16px; color: #334155; font-weight: 600;
-            font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         /* 버튼·입력칸 높이를 44px 로 통일 (Streamlit 버전과 무관하게 적용되는 선택자) */
         div[data-testid="stButton"] button,
         div[data-testid="stDownloadButton"] button,
@@ -51,11 +45,17 @@ def run_tycoon_game():
         .fb-hero h4 { margin: 0 0 4px; color: #3F7D34; font-size: 1.05em; }
         .fb-hero p { margin: 0; color: #64748b; font-size: 0.9em; }
         /* 마크다운 컨테이너의 음수 여백(-16px) 때문에 바의 레이아웃 높이가 줄어드는 것을 방지 */
-        div[data-testid="stMarkdownContainer"]:has(.login-bar),
-        div[data-testid="stMarkdownContainer"]:has(.guest-bar) { margin: 0 !important; padding: 0 !important; }
+        div[data-testid="stMarkdownContainer"]:has(.login-bar) { margin: 0 !important; padding: 0 !important; }
 
-        /* 🖼 게임이 한 화면에 들어오도록 위쪽 여백을 줄입니다 */
-        .block-container { padding-top: 1.2rem !important; padding-bottom: 1rem !important; }
+        /* 🖼 위쪽 여백 — 너무 줄이면 [플랫폼 메인으로 나가기] 버튼이
+           스트림릿 상단 막대에 가려서 안 보입니다. 가리지 않을 만큼만 둡니다. */
+        .block-container { padding-top: 3rem !important; padding-bottom: 1rem !important; }
+        /* 일반 버튼(나가기·로그아웃 등)을 또렷하게 */
+        div[data-testid="stButton"] button:not([kind="primary"]) {
+            border: 1.5px solid #B9C4D0 !important; background: #FFFFFF !important;
+            color: #1B1F24 !important; font-weight: 600 !important; }
+        div[data-testid="stButton"] button:not([kind="primary"]):hover {
+            border-color: #4CAF50 !important; color: #2E7D32 !important; }
         .tycoon-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
             margin: 0 0 10px; }
         .tycoon-head .t { font-size:1.55rem; font-weight:800; color:#1B1F24; letter-spacing:-.02em; }
@@ -221,13 +221,6 @@ def run_tycoon_game():
                     if k in st.session_state:
                         del st.session_state[k]
                 st.rerun()
-    else:
-        st.markdown(
-            '<div class="guest-bar"><span>🏆</span>'
-            '<span>명예의 전당은 로그인 없이 볼 수 있습니다. '
-            '게임에 참여하시려면 [게임 플레이] 탭에서 로그인해 주세요.</span></div>',
-            unsafe_allow_html=True,
-        )
 
     st.markdown("")
 
